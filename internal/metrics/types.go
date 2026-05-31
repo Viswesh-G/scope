@@ -24,6 +24,7 @@ type WorkerStats struct {
 
 	FilesScanned int64
 	MatchesFound int64
+	BytesScanned int64
 	WorkTimeNs   int64
 
 	Mu    sync.Mutex

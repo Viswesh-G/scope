@@ -24,6 +24,12 @@ scope search -p "func main" --path ./cmd -r -i
 
 # Run a search with a specific number of workers
 scope search -p "fmt.Println" -w 4
+
+# Search only in filenames instead of contents
+scope search -p "engine" --fname
+
+# Find files with the most matches for a pattern
+scope search -p "github" --hotspots
 ```
 
 ---
@@ -99,4 +105,48 @@ Lists all patterns currently defined in the local `.scope-ignore` file.
 **Examples:**
 ```bash
 scope ignore list
+```
+
+---
+
+## Codebase Analysis
+
+### `scope dupes`
+Find duplicate files by hashing their contents (SHA256).
+
+**Examples:**
+```bash
+# Find duplicates in the current directory
+scope dupes
+```
+
+### `scope deps`
+Analyze and count Go dependencies across the repository based on import statements.
+
+**Examples:**
+```bash
+scope deps
+```
+
+### `scope graph`
+Build and display a visual directory tree graph of the repository, respecting ignore rules.
+
+**Flags:**
+* `--dot`: Export to Graphviz DOT format
+
+**Examples:**
+```bash
+# Display directory tree
+scope graph
+
+# Export to DOT format
+scope graph --dot > graph.dot
+```
+
+### `scope stats`
+Show statistics for file extensions across the repository.
+
+**Examples:**
+```bash
+scope stats
 ```

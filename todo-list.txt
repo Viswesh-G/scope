@@ -1,0 +1,123 @@
+Phase 1 Goal - DONE
+
+Build a fast concurrent grep.
+
+Only these capabilities:
+
+1. Walk filesystem
+2. Queue files
+3. Worker pool
+4. Regex search
+5. Print matches
+6. Graceful shutdown
+================
+NEED: 
+
+TODO - 1. Filename Search
+Currently:
+
+scope search -p "engine"
+
+only searches content.
+
+
+Add:
+
+scope search --name engine
+
+Result:
+
+internal/search/engine.go
+internal/search/engine_test.go
+---
+TODO - 2. Duplicate Detection
+
+Interesting concurrency project.
+
+scope dupes
+
+Hash files:
+
+sha256(file)
+
+Output:
+
+Duplicate Files
+
+docs/README.md
+archive/README.md
+
+Good resume feature. ???
+---
+TODO - 3. Dependency Analyzer
+
+Since you're already parsing imports:
+
+scope deps
+
+Output:
+
+cobra        4 imports
+viper        2 imports
+fatih/color  3 imports
+
+For Go repos this is extremely useful.
+---
+TODO - 4. Repo Graph (Most Impressive)
+
+Build import graph.
+
+scope graph
+
+Output:
+
+main.go
+ └── cmd
+      ├── search
+      ├── config
+      └── root
+
+search
+ ├── metrics
+ └── output
+
+Later export:
+
+scope graph --dot
+
+for Graphviz.
+---
+TODO - 5. Extension Statistics
+
+Since you're already collecting metrics:
+
+scope stats
+
+Output:
+
+Extensions
+────────────────────
+
+.go     17 files
+.md      2 files
+.txt     1 file
+.yaml    1 file
+
+Easy to implement.
+---
+TODO - 6. Hotspot Detection
+
+Find files with most matches.
+
+scope search -p "github" --hotspots
+
+Output:
+
+Hotspots
+────────────────────
+
+internal/search/engine.go      6 matches
+cmd/root.go                    4 matches
+README.md                      3 matches
+
+Very useful for codebase exploration.

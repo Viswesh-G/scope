@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/Viswesh-G/scope/internal/ignore"
 	"github.com/Viswesh-G/scope/internal/metrics"
 	"github.com/Viswesh-G/scope/internal/output"
 )
@@ -31,7 +33,7 @@ func Run(cfg Config) error {
 	}
 
 	// Load .scope-ignore
-	ignore, err := LoadIgnoreFile(filepath.Join(cfg.Path, ".scope-ignore"))
+	ig, err := ignore.LoadIgnoreFile(filepath.Join(cfg.Path, ".scope-ignore"))
 	if err != nil {
 		return fmt.Errorf("loading .scope-ignore: %w", err)
 	}
@@ -42,12 +44,12 @@ func Run(cfg Config) error {
 	// Walker
 	go func() {
 		start := time.Now()
-		walkFiles(cfg, ignore, fileCh, registry)
+		walkFiles(cfg, ig, fileCh, registry)
 		registry.WalkDuration = time.Since(start)
 	}()
 
 	// Workers
-	wg := startWorkers(cfg.Workers, re, fileCh, matchCh, registry)
+	wg := startWorkers(cfg, re, fileCh, matchCh, registry)
 
 	// Close match channel
 	go func() {
@@ -56,15 +58,19 @@ func Run(cfg Config) error {
 	}()
 
 	// Collector
-	for m := range matchCh {
-		highlighted := re.ReplaceAllStringFunc(m.Line, func(match string) string {
-			return output.MatchColor.Sprint(match)
-		})
-		fmt.Printf("%s:%s %s\n",
-			output.FileColor.Sprint(m.File),
-			output.SuccessColor.Sprint(m.LineNum),
-			highlighted,
-		)
+	if cfg.Hotspots {
+		collectHotspots(matchCh)
+	} else {
+		for m := range matchCh {
+			highlighted := re.ReplaceAllStringFunc(m.Line, func(match string) string {
+				return output.MatchColor.Sprint(match)
+			})
+			fmt.Printf("%s:%s %s\n",
+				output.FileColor.Sprint(m.File),
+				output.SuccessColor.Sprint(m.LineNum),
+				highlighted,
+			)
+		}
 	}
 
 	registry.TotalDuration = time.Since(totalStart)
@@ -80,7 +86,7 @@ func Run(cfg Config) error {
 // WALKER
 // --------------------------------------------------------------------
 
-func walkFiles(cfg Config, ignore *IgnoreMatcher, fileCh chan<- string, registry *metrics.Registry) {
+func walkFiles(cfg Config, ig *ignore.IgnoreMatcher, fileCh chan<- string, registry *metrics.Registry) {
 	defer close(fileCh)
 
 	_ = filepath.WalkDir(cfg.Path, func(path string, d os.DirEntry, err error) error {
@@ -90,7 +96,7 @@ func walkFiles(cfg Config, ignore *IgnoreMatcher, fileCh chan<- string, registry
 
 		if d.IsDir() {
 			atomic.AddInt64(&registry.DirsScanned, 1)
-			if ShouldSkipDir(d.Name(), ignore) {
+			if ignore.ShouldSkipDir(d.Name(), ig) {
 				return filepath.SkipDir
 			}
 			if !cfg.Recursive && path != cfg.Path {
@@ -99,7 +105,7 @@ func walkFiles(cfg Config, ignore *IgnoreMatcher, fileCh chan<- string, registry
 			return nil
 		}
 
-		if ShouldSkipFile(path, ignore) {
+		if ignore.ShouldSkipFile(path, ig) {
 			atomic.AddInt64(&registry.FilesIgnored, 1)
 			return nil
 		}
@@ -114,10 +120,10 @@ func walkFiles(cfg Config, ignore *IgnoreMatcher, fileCh chan<- string, registry
 // WORKERS
 // --------------------------------------------------------------------
 
-func startWorkers(workers int, re *regexp.Regexp, fileCh <-chan string, matchCh chan<- Match, registry *metrics.Registry) *sync.WaitGroup {
+func startWorkers(cfg Config, re *regexp.Regexp, fileCh <-chan string, matchCh chan<- Match, registry *metrics.Registry) *sync.WaitGroup {
 	var wg sync.WaitGroup
 
-	for i := 0; i < workers; i++ {
+	for i := 0; i < cfg.Workers; i++ {
 		wg.Add(1)
 		workerID := i
 
@@ -133,9 +139,16 @@ func startWorkers(workers int, re *regexp.Regexp, fileCh <-chan string, matchCh 
 				workerStats.Mu.Unlock()
 
 				searchStart := time.Now()
-				matches := searchFile(path, re)
+				var data []byte
+				var matches []Match
+				if cfg.FilenameOnly {
+					matches = searchFilename(path, re)
+				} else {
+					data, matches = searchFileWithData(path, re)
+				}
 				elapsed := time.Since(searchStart)
 
+				atomic.AddInt64(&workerStats.BytesScanned, int64(len(data)))
 				atomic.AddInt64(&workerStats.WorkTimeNs, elapsed.Nanoseconds())
 				atomic.AddInt64(&registry.SearchTimeNs, elapsed.Nanoseconds())
 				atomic.AddInt64(&registry.MatchesFound, int64(len(matches)))
@@ -155,10 +168,10 @@ func startWorkers(workers int, re *regexp.Regexp, fileCh <-chan string, matchCh 
 // FILE SEARCH
 // --------------------------------------------------------------------
 
-func searchFile(path string, re *regexp.Regexp) []Match {
+func searchFileWithData(path string, re *regexp.Regexp) ([]byte, []Match) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	var matches []Match
@@ -174,5 +187,61 @@ func searchFile(path string, re *regexp.Regexp) []Match {
 		}
 	}
 
-	return matches
+	return data, matches
+}
+
+
+
+func searchFilename(
+    path string,
+    re *regexp.Regexp,
+) []Match {
+
+    name := filepath.Base(path)
+
+    if !re.MatchString(name) {
+        return nil
+    }
+
+    return []Match{
+        {
+            Mode: FilenameSearch,
+			Line: name,
+            File: path,
+        },
+    }
+}
+
+// --------------------------------------------------------------------
+// HOTSPOTS
+// --------------------------------------------------------------------
+
+func collectHotspots(matchCh <-chan Match) {
+	counts := make(map[string]int)
+	for m := range matchCh {
+		counts[m.File]++
+	}
+
+	type hotspot struct {
+		file  string
+		count int
+	}
+	var spots []hotspot
+	for f, c := range counts {
+		spots = append(spots, hotspot{f, c})
+	}
+
+	sort.Slice(spots, func(i, j int) bool {
+		return spots[i].count > spots[j].count
+	})
+
+	fmt.Println()
+	fmt.Println(output.TitleColor.Sprint("Hotspots"))
+	fmt.Println(output.DimColor.Sprint("────────────────────"))
+	fmt.Println()
+
+	for _, s := range spots {
+		fmt.Printf("%-30s %d matches\n", output.FileColor.Sprint(s.file), s.count)
+	}
+	fmt.Println()
 }

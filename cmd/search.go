@@ -12,6 +12,8 @@ var (
 	flagPath       string
 	flagRecursive  bool
 	flagWorkers    int
+	flagFilenameOnly   bool
+	flagHotspots       bool
 	flagIgnoreCase bool
 )
 
@@ -22,7 +24,7 @@ var searchCmd = &cobra.Command{
 By default, this will search recursively starting from the current directory, utilizing
 all available CPU cores to speed up the process. It will automatically respect any
 local '.scope-ignore' files as well as default ignores (like .git, node_modules).`,
-	RunE:  runSearch,
+	RunE: runSearch,
 }
 
 func init() {
@@ -31,6 +33,7 @@ func init() {
 	f := searchCmd.Flags()
 
 	f.StringVarP(&flagPattern, "pattern", "p", "", "regex pattern")
+	f.BoolVarP(&flagFilenameOnly, "fname", "f", false, "filename to search for")
 	f.StringVar(&flagPath, "path", ".", "search path")
 
 	f.BoolVarP(
@@ -39,6 +42,13 @@ func init() {
 		"r",
 		true,
 		"search recursively",
+	)
+
+	f.BoolVar(
+		&flagHotspots,
+		"hotspots",
+		false,
+		"find files with most matches",
 	)
 
 	f.BoolVarP(
@@ -67,6 +77,8 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		Path:       flagPath,
 		Recursive:  flagRecursive,
 		Workers:    flagWorkers,
+		FilenameOnly:   flagFilenameOnly,
+		Hotspots:   flagHotspots,
 		IgnoreCase: flagIgnoreCase,
 	}
 
