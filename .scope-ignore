@@ -1,0 +1,7 @@
+# scope-ignore
+.git
+node_modules
+vendor
+build
+dist
+go.*

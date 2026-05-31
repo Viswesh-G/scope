@@ -1,7 +1,5 @@
 package main
 
-import "fmt"
+import "github.com/Viswesh-G/scope/cmd"
 
-func main(){
-	fmt.Println("HI")
-}
+func main() { cmd.Execute() }

@@ -1,0 +1,15 @@
+Phase 1 Goal
+
+Build a fast concurrent grep.
+
+Only these capabilities:
+
+1. Walk filesystem
+2. Queue files
+3. Worker pool
+4. Regex search
+5. Print matches
+6. Graceful shutdown
+
+
+Github
