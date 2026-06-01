@@ -6,12 +6,12 @@ import (
 )
 
 var statsCmd = &cobra.Command{
-	Use:   "stats",
+	Use:   "ext-stats",
 	Short: "Show file extension statistics",
 	Long:  `Show statistics for file extensions across the repository.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path, _ := cmd.Flags().GetString("path")
-		return analysis.RunStats(path)
+		return analysis.RunExtStats(path)
 	},
 }
 

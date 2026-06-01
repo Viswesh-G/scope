@@ -15,6 +15,7 @@ var (
 	flagFilenameOnly   bool
 	flagHotspots       bool
 	flagIgnoreCase bool
+	flagNoHistory  bool
 )
 
 var searchCmd = &cobra.Command{
@@ -67,6 +68,9 @@ func init() {
 		"number of workers",
 	)
 
+	f.BoolVar(&flagNoHistory, "no-history", false, "do not save search history")
+	_ = f.MarkHidden("no-history")
+
 	_ = searchCmd.MarkFlagRequired("pattern")
 }
 
@@ -78,8 +82,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		Recursive:  flagRecursive,
 		Workers:    flagWorkers,
 		FilenameOnly:   flagFilenameOnly,
-		Hotspots:   flagHotspots,
-		IgnoreCase: flagIgnoreCase,
+		Hotspots:     flagHotspots,
+		IgnoreCase:   flagIgnoreCase,
+		SkipHistory:  flagNoHistory,
 	}
 
 	return search.Run(cfg)

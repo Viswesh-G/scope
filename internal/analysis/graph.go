@@ -69,8 +69,10 @@ func RunGraph(path string, dot bool) error {
 		printDot(root, root.Name)
 		fmt.Println("}")
 	} else {
+		output.PrintHeader("Directory Graph", path)
 		fmt.Println(output.FileColor.Sprint(root.Name))
 		printTree(root, "")
+		fmt.Println()
 	}
 
 	return nil

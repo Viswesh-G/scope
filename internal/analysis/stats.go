@@ -11,7 +11,7 @@ import (
 	"github.com/Viswesh-G/scope/internal/output"
 )
 
-func RunStats(path string) error {
+func RunExtStats(path string) error {
 	ig, err := ignore.LoadIgnoreFile(filepath.Join(path, ".scope-ignore"))
 	if err != nil {
 		return fmt.Errorf("loading .scope-ignore: %w", err)
@@ -58,19 +58,22 @@ func RunStats(path string) error {
 		return stats[i].count > stats[j].count
 	})
 
-	fmt.Println()
-	fmt.Println(output.TitleColor.Sprint("Extensions"))
-	fmt.Println(output.DimColor.Sprint("────────────────────"))
-	fmt.Println()
+	output.PrintHeader("Extensions", "")
 
+	var rows [][]string
 	for _, s := range stats {
 		label := "files"
 		if s.count == 1 {
 			label = "file"
 		}
-		fmt.Printf("%-20s %d %s\n", output.FileColor.Sprint(s.ext), s.count, label)
+		rows = append(rows, []string{s.ext, fmt.Sprintf("%d", s.count), label})
 	}
-	fmt.Println()
+
+	output.PrintTable(
+		[]string{"Extension", "Count", ""},
+		rows,
+		[]string{"left", "right", "left"},
+	)
 
 	return nil
 }

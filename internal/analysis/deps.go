@@ -79,15 +79,18 @@ func RunDeps(path string) error {
 		return list[i].count > list[j].count
 	})
 
-	fmt.Println()
-	fmt.Println(output.TitleColor.Sprint("Go Dependencies"))
-	fmt.Println(output.DimColor.Sprint("────────────────────"))
-	fmt.Println()
+	output.PrintHeader("Go Dependencies", "")
 
+	var rows [][]string
 	for _, d := range list {
-		fmt.Printf("%-30s %d imports\n", output.FileColor.Sprint(d.pkg), d.count)
+		rows = append(rows, []string{d.pkg, fmt.Sprintf("%d", d.count)})
 	}
-	fmt.Println()
+
+	output.PrintTable(
+		[]string{"Package", "Imports"},
+		rows,
+		[]string{"left", "right"},
+	)
 
 	return nil
 }

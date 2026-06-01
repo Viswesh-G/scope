@@ -1,123 +1,242 @@
-Phase 1 Goal - DONE
+From the help output, you have crossed the "basic grep clone" stage.
 
-Build a fast concurrent grep.
+Current status:
 
-Only these capabilities:
+| Feature                   | Status |
+| ------------------------- | ------ |
+| Concurrent regex search   | ✅      |
+| Worker pool               | ✅      |
+| Regex support             | ✅      |
+| Case-insensitive search   | ✅      |
+| Recursive traversal       | ✅      |
+| .scope-ignore support     | ✅      |
+| Metrics collection        | ✅      |
+| Worker profiling          | ✅      |
+| Throughput calculations   | ✅      |
+| Load balance analysis     | ✅      |
+| Hotspot detection         | ✅      |
+| Filename search           | ✅      |
+| Dependency analyzer       | ✅      |
+| Duplicate finder          | ✅      |
+| Directory graph           | ✅      |
+| Extension statistics      | ✅      |
+| Theme/color customization | ✅      |
+| Config persistence        | ✅      |
+| Ignore-file management    | ✅      |
 
-1. Walk filesystem
-2. Queue files
-3. Worker pool
-4. Regex search
-5. Print matches
-6. Graceful shutdown
-================
-NEED: 
+---
 
-TODO - 1. Filename Search
-Currently:
+# Next Major Milestone
 
-scope search -p "engine"
+You now have a useful CLI.
 
-only searches content.
+The next jump is:
 
+## Self-Profiling
+
+This is where Scope becomes unique.
+
+---
+
+# 1. pprof Integration
 
 Add:
 
-scope search --name engine
+```bash
+scope search -p "github" --profile
+```
 
-Result:
+or
 
-internal/search/engine.go
-internal/search/engine_test.go
+```bash
+scope profile search -p "github"
+```
+
+Generates:
+
+```bash
+.scope/
+    cpu.pprof
+    mem.pprof
+```
+
+Code:
+
+```go
+import "runtime/pprof"
+
+f, _ := os.Create("cpu.pprof")
+pprof.StartCPUProfile(f)
+
+defer func() {
+    pprof.StopCPUProfile()
+    f.Close()
+}()
+```
+
 ---
-TODO - 2. Duplicate Detection
 
-Interesting concurrency project.
+# 2. Benchmark Mode
 
-scope dupes
+Add:
 
-Hash files:
-
-sha256(file)
+```bash
+scope bench
+```
 
 Output:
 
-Duplicate Files
-
-docs/README.md
-archive/README.md
-
-Good resume feature. ???
----
-TODO - 3. Dependency Analyzer
-
-Since you're already parsing imports:
-
-scope deps
-
-Output:
-
-cobra        4 imports
-viper        2 imports
-fatih/color  3 imports
-
-For Go repos this is extremely useful.
----
-TODO - 4. Repo Graph (Most Impressive)
-
-Build import graph.
-
-scope graph
-
-Output:
-
-main.go
- └── cmd
-      ├── search
-      ├── config
-      └── root
-
-search
- ├── metrics
- └── output
-
-Later export:
-
-scope graph --dot
-
-for Graphviz.
----
-TODO - 5. Extension Statistics
-
-Since you're already collecting metrics:
-
-scope stats
-
-Output:
-
-Extensions
+```text
+Benchmark
 ────────────────────
 
-.go     17 files
-.md      2 files
-.txt     1 file
-.yaml    1 file
+Files        : 21
+Size         : 34 KB
 
-Easy to implement.
+1 Worker     : 15 ms
+2 Workers    : 9 ms
+4 Workers    : 5 ms
+8 Workers    : 3 ms
+16 Workers   : 4 ms
+
+Best Worker Count : 8
+```
+
+This is extremely interesting because you already collect timings.
+
 ---
-TODO - 6. Hotspot Detection
 
-Find files with most matches.
+# 3. Ripgrep Comparison
 
-scope search -p "github" --hotspots
+Add:
+
+```bash
+scope compare -p "github"
+```
+
+Runs:
+
+```bash
+scope
+ripgrep
+```
 
 Output:
 
-Hotspots
+```text
+Tool        Time
 ────────────────────
 
-internal/search/engine.go      6 matches
-cmd/root.go                    4 matches
-README.md                      3 matches
+Scope       3.2 ms
+Ripgrep     1.7 ms
 
-Very useful for codebase exploration.
+Difference  1.88x
+```
+
+Recruiters love this.
+
+Shows performance awareness.
+
+---
+
+
+---
+
+# 7. HTML Report
+
+Now we're entering portfolio territory.
+
+```bash
+scope search -p github --html report.html
+```
+
+Output:
+
+```html
+Matches
+Metrics
+Worker Stats
+Load Balance
+Top Workers
+```
+
+Open in browser.
+
+---
+
+# 8. Live Dashboard
+
+After pprof.
+
+```bash
+scope serve
+```
+
+Starts:
+
+```text
+localhost:8080
+```
+
+Shows:
+
+* search history
+* throughput
+* worker utilization
+* hotspots
+* extension stats
+* dependency stats
+
+Grafana-like.
+
+---
+
+# 9. Flamegraphs
+
+The feature that changes the project from "CLI utility" to "systems project".
+
+```bash
+scope search -p github --profile
+```
+
+Generates:
+
+```text
+cpu.svg
+memory.svg
+```
+
+Then:
+
+```bash
+scope flame latest
+```
+
+opens browser.
+
+Shows:
+
+```text
+searchFile()
+    └── regexp.Match()
+          └── ReadFile()
+```
+
+Now you're building observability tooling.
+
+---
+
+# Priority Order
+
+Do these in order:
+
+```text
+4. Benchmark Command       (medium)
+5. pprof Integration       (medium)
+6. Compare Against rg      (medium)
+7. HTML Reports            (medium)
+8. Dashboard Server        (hard)
+9. Flamegraphs             (very hard)
+```
+
+If your goal is a standout systems/concurrency/observability project, the biggest value now is **Benchmark → pprof → Flamegraphs**. Those are the features that transform Scope from a grep clone into a self-observing search engine.

@@ -16,6 +16,8 @@ import (
 	"github.com/Viswesh-G/scope/internal/ignore"
 	"github.com/Viswesh-G/scope/internal/metrics"
 	"github.com/Viswesh-G/scope/internal/output"
+	"github.com/Viswesh-G/scope/internal/analysis"
+
 )
 
 func Run(cfg Config) error {
@@ -86,10 +88,26 @@ func Run(cfg Config) error {
 	}
 
 	registry.TotalDuration = time.Since(totalStart)
-	report := metrics.BuildReport(registry)
+	report := metrics.BuildReport(registry) // report build
 
 	renderer := output.ConsoleRenderer{}
-	renderer.Render(report)
+	renderer.Render(report) // render the report
+
+	if !cfg.SkipHistory {
+		analysis.Save(
+			analysis.SearchRecord{
+				Timestamp: time.Now().
+					Format(time.RFC3339),
+				Pattern:    cfg.Pattern,
+				Path:       cfg.Path,
+				Workers:    cfg.Workers,
+				Matches:    registry.MatchesFound,
+				DurationMs: registry.TotalDuration.Seconds() * 1000,
+			},
+		)
+	}
+
+
 
 	return nil
 }

@@ -22,10 +22,18 @@ the 'ignore' command.`,
 		output.InitColors()
 		return nil
 	},
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		// If colors aren't initialized yet (e.g. error before PersistentPreRunE), 
+		// output.PrintError will safely fall back to uncolored or default colored text.
+		if output.ErrorColor == nil {
+			output.InitColors()
+		}
+		output.PrintError(err)
 		os.Exit(1)
 	}
 }

@@ -24,6 +24,7 @@ type Config struct {
 	Recursive  bool
 	IgnoreCase bool
 	Workers    int
+	SkipHistory bool
 }
 
 

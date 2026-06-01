@@ -34,6 +34,24 @@ scope search -p "github" --hotspots
 
 ---
 
+## Benchmarking
+
+### `scope compare`
+Benchmarks `scope` against `ripgrep` for a specific search pattern and path. It runs both tools multiple times to compute an average duration and determine a winner.
+
+**Flags:**
+* `-p, --pattern`: The regular expression pattern to search for (Required)
+* `--path`: The path to search in (Default: `.`)
+* `--runs`: Number of benchmark iterations to run for an accurate average (Default: `20`)
+
+**Examples:**
+```bash
+# Compare scope and ripgrep using 20 runs
+scope compare -p "github" --runs 20
+```
+
+---
+
 ## Configuration & Personalization
 
 ### `scope config set-color`
@@ -149,4 +167,102 @@ Show statistics for file extensions across the repository.
 **Examples:**
 ```bash
 scope stats
+```
+
+---
+
+## Search History & Observability
+
+### `scope history`
+Displays a chronological list of recent searches executed, including the pattern, matches found, worker count, and total execution time.
+
+**Examples:**
+```bash
+scope history
+```
+
+### `scope history stats`
+Displays aggregated metrics over your search history, such as total searches, unique patterns, and average/fastest/slowest search times.
+
+**Examples:**
+```bash
+scope history stats
+```
+
+### `scope history top`
+Lists the most frequently searched patterns ranked by occurrence count.
+
+**Examples:**
+```bash
+scope history top
+```
+
+### `scope history slowest`
+Displays the top 10 slowest search queries you have run.
+
+**Examples:**
+```bash
+scope history slowest
+```
+
+### `scope history fastest`
+Displays the top 10 fastest search queries you have run.
+
+**Examples:**
+```bash
+scope history fastest
+```
+
+### `scope history recent`
+Lists a specific number of your most recent searches.
+
+**Flags:**
+* `--limit`: Number of recent searches to display (Default: `10`)
+
+**Examples:**
+```bash
+scope history recent --limit 5
+```
+
+### `scope history pattern`
+Filters and lists historical searches by a specific pattern string.
+
+**Examples:**
+```bash
+scope history pattern "TODO"
+```
+
+### `scope history path`
+Filters and lists historical searches by a specific target path.
+
+**Examples:**
+```bash
+scope history path "./cmd"
+```
+
+### `scope history export`
+Exports your entire search history to a JSON file.
+
+**Flags:**
+* `-o, --output`: Destination file path for the export (Required)
+
+**Examples:**
+```bash
+scope history export -o /tmp/hist_test1.json
+```
+
+### `scope history prune`
+Prunes the search history to keep only the most recent N records.
+
+**Examples:**
+```bash
+scope history prune 50
+```
+
+### `scope history clear`
+Deletes all recorded search history.
+
+**Examples:**
+```bash
+scope history clear
 ```

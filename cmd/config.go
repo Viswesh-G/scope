@@ -28,7 +28,7 @@ For a list of all available elements and valid colors, run 'scope config list'.`
 		if err := config.SetColor(element, colorName); err != nil {
 			return err
 		}
-		fmt.Printf("Successfully set %s color to %s\n", element, colorName)
+		output.PrintSuccess(fmt.Sprintf("Successfully set %s color to %s", element, colorName))
 		return nil
 	},
 }
@@ -41,7 +41,7 @@ var configResetCmd = &cobra.Command{
 		if err := config.Reset(); err != nil {
 			return err
 		}
-		fmt.Println("Successfully reset configuration to defaults")
+		output.PrintSuccess("Successfully reset configuration to defaults")
 		return nil
 	},
 }
@@ -51,21 +51,22 @@ var configListCmd = &cobra.Command{
 	Short: "List all colors and configuration elements",
 	Long:  "Display all available elements that can be styled, current color settings, and all valid colors.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("--- Current Configuration ---")
+		output.PrintHeader("Current Configuration", "")
 		current := config.GetCurrentColors()
 		for k, v := range current {
 			attr := output.MapColor(v)
 			c := color.New(attr)
-			fmt.Printf("  %s: %s\n", k, c.Sprint(v))
+			output.PrintKeyValue(k, c.Sprint(v))
 		}
 		
-		fmt.Println("\n--- Valid Colors ---")
+		output.PrintHeader("Valid Colors", "")
 		valid := config.GetValidColors()
 		for k := range valid {
 			attr := output.MapColor(k)
 			c := color.New(attr)
 			fmt.Printf("  %s\n", c.Sprint(k))
 		}
+		fmt.Println()
 	},
 }
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Viswesh-G/scope/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +41,7 @@ such as .git, node_modules, vendor, build, and dist.`,
 			return err
 		}
 
-		fmt.Println("Initialized .scope-ignore with defaults")
+		output.PrintSuccess("Initialized .scope-ignore with defaults")
 		return nil
 	},
 }
@@ -52,7 +53,7 @@ var ignoreAddCmd = &cobra.Command{
 Examples:
   scope ignore add "build/"
   scope ignore add "*.log"`,
-	Args:  cobra.ExactArgs(1),
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		f, err := os.OpenFile(".scope-ignore", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -65,7 +66,7 @@ Examples:
 			return err
 		}
 
-		fmt.Printf("Added %s to .scope-ignore\n", pattern)
+		output.PrintSuccess(fmt.Sprintf("Added %s to .scope-ignore", pattern))
 		return nil
 	},
 }
@@ -100,7 +101,7 @@ var ignoreRemoveCmd = &cobra.Command{
 		}
 
 		if !found {
-			fmt.Printf("Pattern %s not found in .scope-ignore\n", pattern)
+			output.PrintWarning(fmt.Sprintf("Pattern %s not found in .scope-ignore", pattern))
 			return nil
 		}
 
@@ -108,7 +109,7 @@ var ignoreRemoveCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Removed %s from .scope-ignore\n", pattern)
+		output.PrintSuccess(fmt.Sprintf("Removed %s from .scope-ignore", pattern))
 		return nil
 	},
 }
@@ -121,14 +122,15 @@ var ignoreListCmd = &cobra.Command{
 		b, err := os.ReadFile(".scope-ignore")
 		if err != nil {
 			if os.IsNotExist(err) {
-				fmt.Println("No .scope-ignore found")
+				output.PrintWarning("No .scope-ignore found")
 				return nil
 			}
 			return err
 		}
 
-		fmt.Println("Patterns in .scope-ignore:")
+		output.PrintHeader("Patterns in .scope-ignore", "")
 		fmt.Print(string(b))
+		fmt.Println()
 		return nil
 	},
 }

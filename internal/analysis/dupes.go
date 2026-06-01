@@ -66,10 +66,7 @@ func RunDupes(path string, workers int) error {
 		hashes[res.Hash] = append(hashes[res.Hash], res.Path)
 	}
 
-	fmt.Println()
-	fmt.Println(output.TitleColor.Sprint("Duplicate Files"))
-	fmt.Println(output.DimColor.Sprint("────────────────────"))
-	fmt.Println()
+	output.PrintHeader("Duplicate Files", "")
 
 	found := false
 	for _, paths := range hashes {
@@ -83,7 +80,7 @@ func RunDupes(path string, workers int) error {
 	}
 
 	if !found {
-		fmt.Println("No duplicates found.")
+		output.PrintSuccess("No duplicates found.")
 	}
 
 	registry.TotalDuration = time.Since(totalStart)
