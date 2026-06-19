@@ -6,5 +6,29 @@
     "workers": 7,
     "matches": 184,
     "duration_ms": 56.728
+  },
+  {
+    "timestamp": "2026-06-03T14:53:36+05:30",
+    "pattern": "(?i)and",
+    "path": ".",
+    "workers": 1,
+    "matches": 143,
+    "duration_ms": 69.2554
+  },
+  {
+    "timestamp": "2026-06-19T17:54:54+05:30",
+    "pattern": "github",
+    "path": ".",
+    "workers": 6,
+    "matches": 52,
+    "duration_ms": 35.529199999999996
+  },
+  {
+    "timestamp": "2026-06-19T17:56:36+05:30",
+    "pattern": "github",
+    "path": ".",
+    "workers": 6,
+    "matches": 118,
+    "duration_ms": 39.4349
   }
 ]

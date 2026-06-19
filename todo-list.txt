@@ -1,30 +1,4 @@
-From the help output, you have crossed the "basic grep clone" stage.
 
-Current status:
-
-| Feature                   | Status |
-| ------------------------- | ------ |
-| Concurrent regex search   | ✅      |
-| Worker pool               | ✅      |
-| Regex support             | ✅      |
-| Case-insensitive search   | ✅      |
-| Recursive traversal       | ✅      |
-| .scope-ignore support     | ✅      |
-| Metrics collection        | ✅      |
-| Worker profiling          | ✅      |
-| Throughput calculations   | ✅      |
-| Load balance analysis     | ✅      |
-| Hotspot detection         | ✅      |
-| Filename search           | ✅      |
-| Dependency analyzer       | ✅      |
-| Duplicate finder          | ✅      |
-| Directory graph           | ✅      |
-| Extension statistics      | ✅      |
-| Theme/color customization | ✅      |
-| Config persistence        | ✅      |
-| Ignore-file management    | ✅      |
-
----
 
 # Next Major Milestone
 
@@ -73,71 +47,6 @@ defer func() {
     f.Close()
 }()
 ```
-
----
-
-# 2. Benchmark Mode
-
-Add:
-
-```bash
-scope bench
-```
-
-Output:
-
-```text
-Benchmark
-────────────────────
-
-Files        : 21
-Size         : 34 KB
-
-1 Worker     : 15 ms
-2 Workers    : 9 ms
-4 Workers    : 5 ms
-8 Workers    : 3 ms
-16 Workers   : 4 ms
-
-Best Worker Count : 8
-```
-
-This is extremely interesting because you already collect timings.
-
----
-
-# 3. Ripgrep Comparison
-
-Add:
-
-```bash
-scope compare -p "github"
-```
-
-Runs:
-
-```bash
-scope
-ripgrep
-```
-
-Output:
-
-```text
-Tool        Time
-────────────────────
-
-Scope       3.2 ms
-Ripgrep     1.7 ms
-
-Difference  1.88x
-```
-
-Recruiters love this.
-
-Shows performance awareness.
-
----
 
 
 ---
@@ -231,9 +140,7 @@ Now you're building observability tooling.
 Do these in order:
 
 ```text
-4. Benchmark Command       (medium)
 5. pprof Integration       (medium)
-6. Compare Against rg      (medium)
 7. HTML Reports            (medium)
 8. Dashboard Server        (hard)
 9. Flamegraphs             (very hard)
