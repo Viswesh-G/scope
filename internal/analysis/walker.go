@@ -1,3 +1,9 @@
+// Shared filesystem walker used by analysis commands (dupes, etc.)
+//
+// Note: search/engine.go has its own similar walker embedded inside Run().
+// I kept them separate because the search walker needs access to the search
+// Config (e.g. cfg.Recursive), and merging them would complicate both.
+// The logic is identical - just different call sites.
 package analysis
 
 import (

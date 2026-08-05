@@ -1,3 +1,5 @@
+// benchmarks scope vs ripgrep - runs both tools many times and computes
+// real statistics (not just a single timing)
 package cmd
 
 import (
@@ -14,13 +16,18 @@ var (
 
 var compareCmd = &cobra.Command{
 	Use:   "compare",
-	Short: "Benchmark Scope against ripgrep",
+	Short: "Benchmark scope against ripgrep",
+	Long: `Run scope and ripgrep head-to-head on the same search.
+
+Both tools alternate who goes first each round (to cancel out cache warming effects).
+A few throwaway warmup rounds run first, then the real timing starts.
+
+Requires ripgrep (rg) on your PATH.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		scopeResult, rgResult, err := analysis.Compare(comparePattern, comparePath, compareRuns, compareWarmup)
 		if err != nil {
 			return err
 		}
-
 		analysis.PrintCompare(compareRuns, compareWarmup, scopeResult, rgResult)
 		return nil
 	},
@@ -30,10 +37,10 @@ func init() {
 	rootCmd.AddCommand(compareCmd)
 
 	f := compareCmd.Flags()
-	f.StringVarP(&comparePattern, "pattern", "p", "", "regex pattern")
-	f.StringVar(&comparePath, "path", ".", "search path")
-	f.IntVar(&compareRuns, "runs", 20, "number of timed benchmark runs")
-	f.IntVar(&compareWarmup, "warmup", 3, "number of warmup runs to discard before timing")
+	f.StringVarP(&comparePattern, "pattern", "p", "", "regex pattern (required)")
+	f.StringVar(&comparePath, "path", ".", "directory to search")
+	f.IntVar(&compareRuns, "runs", 20, "timed benchmark rounds")
+	f.IntVar(&compareWarmup, "warmup", 3, "warmup rounds to discard")
 
 	_ = compareCmd.MarkFlagRequired("pattern")
 }

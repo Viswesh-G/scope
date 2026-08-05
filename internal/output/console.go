@@ -1,3 +1,5 @@
+// ConsoleRenderer prints the post-search metrics report to the terminal.
+// Called at the end of every `scope search` run.
 package output
 
 import (
@@ -10,6 +12,7 @@ import (
 type ConsoleRenderer struct{}
 
 func (ConsoleRenderer) Render(report metrics.Report) {
+	// -- legend --
 	fmt.Println()
 	TitleColor.Println("--- Legend ---")
 	fmt.Printf("  %s : %s : %s\n\n",
@@ -18,8 +21,8 @@ func (ConsoleRenderer) Render(report metrics.Report) {
 		MatchColor.Sprint("Matched Text"),
 	)
 
+	// -- summary --
 	TitleColor.Println("Scope Metrics")
-
 	fmt.Printf("Dirs Scanned  : %d\n", report.DirsScanned)
 	fmt.Printf("Files Scanned : %d\n", report.FilesScanned)
 	fmt.Printf("Files Ignored : %d\n", report.FilesIgnored)
@@ -38,9 +41,7 @@ func (ConsoleRenderer) Render(report metrics.Report) {
 		SuccessColor.Println("Concurrency: Excellent")
 	}
 
-	// ----------------------------------------------------------------
-	// Per-worker stats
-	// ----------------------------------------------------------------
+	// -- per-worker breakdown --
 	fmt.Println()
 	SectionColor.Println("Worker Stats:")
 
@@ -49,15 +50,15 @@ func (ConsoleRenderer) Render(report metrics.Report) {
 		if report.FilesScanned > 0 {
 			pct = float64(worker.FilesScanned) / float64(report.FilesScanned) * 100
 		}
+
+		// ascii progress bar: filled vs empty blocks
 		barLength := int(pct / 100 * 20)
 		bar := strings.Repeat("█", barLength) + strings.Repeat("░", 20-barLength)
 
-		// Header row: bar + percentage
 		SuccessColor.Printf("  Worker %-2d  ", worker.ID)
 		MatchColor.Printf("%s", bar)
 		DimColor.Printf("  %3.0f%% files scanned\n", pct)
 
-		// Stat rows
 		TimeColor.Printf("  work: %-10v  ", worker.WorkDuration)
 		FileColor.Printf("files: %-3d  ", worker.FilesScanned)
 		WarningColor.Printf("matches: %-3d  ", worker.MatchesFound)
@@ -67,15 +68,12 @@ func (ConsoleRenderer) Render(report metrics.Report) {
 			DimColor.Printf("  throughput: %s/s\n", formatBytes(int64(worker.Throughput)))
 		}
 
-		// Indent file list under each worker
 		for _, f := range worker.Files {
 			DimColor.Printf("             ↳ %s\n", f)
 		}
 	}
 
-	// ----------------------------------------------------------------
-	// Load Balance Report
-	// ----------------------------------------------------------------
+	// -- load balance --
 	b := report.Balance
 	fmt.Println()
 	SectionColor.Println("Load Balance")
@@ -89,13 +87,10 @@ func (ConsoleRenderer) Render(report metrics.Report) {
 		SuccessColor.Printf("Imbalance       : %.2fx\n", b.Imbalance)
 	}
 
-	// ----------------------------------------------------------------
-	// Top Workers (ranked by bytes scanned)
-	// ----------------------------------------------------------------
+	// -- top workers (ranked by bytes scanned) --
 	fmt.Println()
 	SectionColor.Println("Top Workers")
 	SectionColor.Println("────────────────────")
-
 	for rank, w := range b.Ranked {
 		TitleColor.Printf("#%d Worker-%d\n", rank+1, w.ID)
 		fmt.Printf("   Files     : %d\n", w.FilesScanned)
@@ -106,11 +101,9 @@ func (ConsoleRenderer) Render(report metrics.Report) {
 			DimColor.Printf("   Throughput: %s/s\n", formatBytes(int64(w.Throughput)))
 		}
 	}
-
 	fmt.Println()
 }
 
-// formatBytes returns a human-readable byte size (B / KB / MB / GB).
 func formatBytes(b int64) string {
 	switch {
 	case b >= 1<<30:

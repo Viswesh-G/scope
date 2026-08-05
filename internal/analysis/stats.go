@@ -1,3 +1,4 @@
+// This file implements `scope stats` — counting files by extension.
 package analysis
 
 import (
@@ -11,12 +12,15 @@ import (
 	"github.com/Viswesh-G/scope/internal/output"
 )
 
+// RunExtStats walks path and counts how many files have each file extension.
+// Results are sorted by count (most common extensions first).
 func RunExtStats(path string) error {
 	ig, err := ignore.LoadIgnoreFile(filepath.Join(path, ".scope-ignore"))
 	if err != nil {
 		return fmt.Errorf("loading .scope-ignore: %w", err)
 	}
 
+	// Map from extension (e.g. ".go") to count.
 	extCounts := make(map[string]int)
 
 	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
@@ -33,15 +37,16 @@ func RunExtStats(path string) error {
 			return nil
 		}
 
+		// Get the lowercase extension (e.g. ".GO" → ".go").
 		ext := strings.ToLower(filepath.Ext(p))
 		if ext == "" {
-			ext = "no extension"
+			ext = "no extension" // group extensionless files together
 		}
 		extCounts[ext]++
-
 		return nil
 	})
 
+	// Sort by count descending, then alphabetically for ties.
 	type extStat struct {
 		ext   string
 		count int
@@ -50,7 +55,6 @@ func RunExtStats(path string) error {
 	for ext, count := range extCounts {
 		stats = append(stats, extStat{ext, count})
 	}
-
 	sort.Slice(stats, func(i, j int) bool {
 		if stats[i].count == stats[j].count {
 			return stats[i].ext < stats[j].ext
@@ -58,10 +62,11 @@ func RunExtStats(path string) error {
 		return stats[i].count > stats[j].count
 	})
 
-	output.PrintHeader("Extensions", "")
+	output.PrintHeader("File Extensions", "")
 
 	var rows [][]string
 	for _, s := range stats {
+		// Grammatically correct label: "1 file" vs "N files".
 		label := "files"
 		if s.count == 1 {
 			label = "file"
@@ -74,6 +79,5 @@ func RunExtStats(path string) error {
 		rows,
 		[]string{"left", "right", "left"},
 	)
-
 	return nil
 }

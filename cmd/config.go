@@ -1,3 +1,5 @@
+// config subcommands - let users change the color of any output element.
+// settings live in ~/.scope-config.yaml (managed by viper)
 package cmd
 
 import (
@@ -11,60 +13,54 @@ import (
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Manage CLI configuration and looks",
+	Short: "Manage CLI configuration and appearance",
 	Long: `Manage your scope CLI configuration, including colors and aesthetic preferences.
-Changes made here are saved globally to your ~/.scope-config.yaml file.`,
+Changes are saved to ~/.scope-config.yaml and persist across sessions.`,
 }
 
 var configSetColorCmd = &cobra.Command{
 	Use:   "set-color [element] [color]",
-	Short: "Set a color for a specific output element",
-	Long: `Set a color for a specific output element (e.g., title, success, match, etc).
-For a list of all available elements and valid colors, run 'scope config list'.`,
-	Args:  cobra.ExactArgs(2),
+	Short: "Set the color of an output element",
+	Long: `Set the color of a specific output element (e.g. title, match, file).
+Run 'scope config list' to see all elements and valid color names.`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		element := args[0]
-		colorName := args[1]
+		element, colorName := args[0], args[1]
 		if err := config.SetColor(element, colorName); err != nil {
 			return err
 		}
-		output.PrintSuccess(fmt.Sprintf("Successfully set %s color to %s", element, colorName))
+		output.PrintSuccess(fmt.Sprintf("Set %s color to %s", element, colorName))
 		return nil
 	},
 }
 
 var configResetCmd = &cobra.Command{
 	Use:   "reset",
-	Short: "Reset configuration to defaults",
-	Long:  "Reset all personalized aesthetics and colors back to their original defaults.",
+	Short: "Reset all colors back to defaults",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := config.Reset(); err != nil {
 			return err
 		}
-		output.PrintSuccess("Successfully reset configuration to defaults")
+		output.PrintSuccess("Configuration reset to defaults")
 		return nil
 	},
 }
 
 var configListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List all colors and configuration elements",
-	Long:  "Display all available elements that can be styled, current color settings, and all valid colors.",
+	Short: "Show current colors and all valid color names",
 	Run: func(cmd *cobra.Command, args []string) {
 		output.PrintHeader("Current Configuration", "")
-		current := config.GetCurrentColors()
-		for k, v := range current {
-			attr := output.MapColor(v)
-			c := color.New(attr)
-			output.PrintKeyValue(k, c.Sprint(v))
+		for element, colorName := range config.GetCurrentColors() {
+			// render each color name in its own color as a live preview
+			c := color.New(output.MapColor(colorName))
+			output.PrintKeyValue(element, c.Sprint(colorName))
 		}
-		
+
 		output.PrintHeader("Valid Colors", "")
-		valid := config.GetValidColors()
-		for k := range valid {
-			attr := output.MapColor(k)
-			c := color.New(attr)
-			fmt.Printf("  %s\n", c.Sprint(k))
+		for colorName := range config.GetValidColors() {
+			c := color.New(output.MapColor(colorName))
+			fmt.Printf("  %s\n", c.Sprint(colorName))
 		}
 		fmt.Println()
 	},

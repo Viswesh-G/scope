@@ -1,3 +1,5 @@
+// Package analysis is everything that isn't the search engine itself:
+// history, benchmarking, file stats, dep counting, duplicate detection, and the directory graph.
 package analysis
 
 import (
@@ -18,6 +20,7 @@ const (
 	HistoryFile = "history.json"
 )
 
+// SearchRecord is one entry in the history file.
 type SearchRecord struct {
 	Timestamp  string  `json:"timestamp"`
 	Pattern    string  `json:"pattern"`
@@ -28,86 +31,54 @@ type SearchRecord struct {
 }
 
 func historyFile() string {
-	return filepath.Join(
-		ScopeDir,
-		HistoryFile,
-	)
+	return filepath.Join(ScopeDir, HistoryFile)
 }
 
+// Save appends a record to history and trims if we're over the limit.
 func Save(record SearchRecord) error {
-
 	path := historyFile()
-
-	if err := os.MkdirAll(
-		filepath.Dir(path),
-		0755,
-	); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 
 	records, _ := Load()
-
 	records = append(records, record)
 
 	if len(records) > MaxHistory {
 		records = records[len(records)-MaxHistory:]
 	}
 
-	data, err := json.MarshalIndent(
-		records,
-		"",
-		"  ",
-	)
+	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(
-		path,
-		data,
-		0644,
-	)
+	return os.WriteFile(path, data, 0644)
 }
 
+// Load reads the history file. Returns an empty slice if it doesn't exist yet.
 func Load() ([]SearchRecord, error) {
-
-	path := historyFile()
-
-	data, err := os.ReadFile(path)
-
+	data, err := os.ReadFile(historyFile())
 	if err != nil {
-
 		if os.IsNotExist(err) {
 			return []SearchRecord{}, nil
 		}
-
 		return nil, err
 	}
 
 	var records []SearchRecord
-
-	if err := json.Unmarshal(
-		data,
-		&records,
-	); err != nil {
+	if err := json.Unmarshal(data, &records); err != nil {
 		return nil, err
 	}
-
 	return records, nil
 }
-
-// =====================================================
-// history
-// =====================================================
 
 func RunHistory() error {
 	records, err := Load()
 	if err != nil {
 		return err
 	}
-
 	if len(records) == 0 {
-		output.PrintSuccess("No history.")
+		output.PrintSuccess("No history yet.")
 		return nil
 	}
 
@@ -130,22 +101,16 @@ func RunHistory() error {
 		rows,
 		[]string{"left", "left", "right", "right", "right"},
 	)
-
 	return nil
 }
-
-// =====================================================
-// history stats
-// =====================================================
 
 func RunStats() error {
 	records, err := Load()
 	if err != nil {
 		return err
 	}
-
 	if len(records) == 0 {
-		output.PrintSuccess("No history.")
+		output.PrintSuccess("No history yet.")
 		return nil
 	}
 
@@ -159,38 +124,28 @@ func RunStats() error {
 		patterns[r.Pattern] = struct{}{}
 		totalMatches += r.Matches
 		totalDuration += r.DurationMs
-		if r.DurationMs < fastest {
-			fastest = r.DurationMs
-		}
-		if r.DurationMs > slowest {
-			slowest = r.DurationMs
-		}
+		if r.DurationMs < fastest { fastest = r.DurationMs }
+		if r.DurationMs > slowest { slowest = r.DurationMs }
 	}
 
 	output.PrintHeader("History Stats", "")
 	output.PrintKeyValue("Total Searches", fmt.Sprintf("%d", len(records)))
 	output.PrintKeyValue("Unique Patterns", fmt.Sprintf("%d", len(patterns)))
 	output.PrintKeyValue("Total Matches", fmt.Sprintf("%d", totalMatches))
-	output.PrintKeyValue("Average Runtime", fmt.Sprintf("%.3f ms", totalDuration/float64(len(records))))
+	output.PrintKeyValue("Average Duration", fmt.Sprintf("%.3f ms", totalDuration/float64(len(records))))
 	output.PrintKeyValue("Fastest Search", fmt.Sprintf("%.3f ms", fastest))
 	output.PrintKeyValue("Slowest Search", fmt.Sprintf("%.3f ms", slowest))
 	fmt.Println()
-
 	return nil
 }
-
-// =====================================================
-// history top
-// =====================================================
 
 func RunTop() error {
 	records, err := Load()
 	if err != nil {
 		return err
 	}
-
 	if len(records) == 0 {
-		output.PrintSuccess("No history.")
+		output.PrintSuccess("No history yet.")
 		return nil
 	}
 
@@ -203,118 +158,72 @@ func RunTop() error {
 		Pattern string
 		Count   int
 	}
-
 	var items []item
 	for p, c := range counts {
-		items = append(items, item{Pattern: p, Count: c})
+		items = append(items, item{p, c})
 	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Count > items[j].Count
-	})
+	sort.Slice(items, func(i, j int) bool { return items[i].Count > items[j].Count })
 
 	output.PrintHeader("Top Patterns", "")
-
 	var rows [][]string
-	for _, item := range items {
-		rows = append(rows, []string{item.Pattern, fmt.Sprintf("%d", item.Count)})
+	for _, it := range items {
+		rows = append(rows, []string{it.Pattern, fmt.Sprintf("%d", it.Count)})
 	}
-
-	output.PrintTable(
-		[]string{"Pattern", "Count"},
-		rows,
-		[]string{"left", "right"},
-	)
-
+	output.PrintTable([]string{"Pattern", "Count"}, rows, []string{"left", "right"})
 	return nil
 }
-
-// =====================================================
-// history slowest
-// =====================================================
 
 func RunSlowest() error {
 	records, err := Load()
 	if err != nil {
 		return err
 	}
-
 	if len(records) == 0 {
-		output.PrintSuccess("No history.")
+		output.PrintSuccess("No history yet.")
 		return nil
 	}
 
-	sort.Slice(records, func(i, j int) bool {
-		return records[i].DurationMs > records[j].DurationMs
-	})
+	sort.Slice(records, func(i, j int) bool { return records[i].DurationMs > records[j].DurationMs })
 
 	output.PrintHeader("Slowest Searches", "")
 	limit := min(10, len(records))
-
 	var rows [][]string
 	for i := 0; i < limit; i++ {
-		r := records[i]
-		rows = append(rows, []string{r.Pattern, fmt.Sprintf("%.3f ms", r.DurationMs)})
+		rows = append(rows, []string{records[i].Pattern, fmt.Sprintf("%.3f ms", records[i].DurationMs)})
 	}
-
-	output.PrintTable(
-		[]string{"Pattern", "Duration"},
-		rows,
-		[]string{"left", "right"},
-	)
-
+	output.PrintTable([]string{"Pattern", "Duration"}, rows, []string{"left", "right"})
 	return nil
 }
-
-// =====================================================
-// history fastest
-// =====================================================
 
 func RunFastest() error {
 	records, err := Load()
 	if err != nil {
 		return err
 	}
-
 	if len(records) == 0 {
-		output.PrintSuccess("No history.")
+		output.PrintSuccess("No history yet.")
 		return nil
 	}
 
-	sort.Slice(records, func(i, j int) bool {
-		return records[i].DurationMs < records[j].DurationMs
-	})
+	sort.Slice(records, func(i, j int) bool { return records[i].DurationMs < records[j].DurationMs })
 
 	output.PrintHeader("Fastest Searches", "")
 	limit := min(10, len(records))
-
 	var rows [][]string
 	for i := 0; i < limit; i++ {
-		r := records[i]
-		rows = append(rows, []string{r.Pattern, fmt.Sprintf("%.3f ms", r.DurationMs)})
+		rows = append(rows, []string{records[i].Pattern, fmt.Sprintf("%.3f ms", records[i].DurationMs)})
 	}
-
-	output.PrintTable(
-		[]string{"Pattern", "Duration"},
-		rows,
-		[]string{"left", "right"},
-	)
-
+	output.PrintTable([]string{"Pattern", "Duration"}, rows, []string{"left", "right"})
 	return nil
 }
-
-// =====================================================
-// history recent
-// =====================================================
 
 func RunRecent(limit int) error {
 	records, err := Load()
 	if err != nil {
 		return err
 	}
-
 	if len(records) == 0 {
-		output.PrintSuccess("No history.")
+		output.PrintSuccess("No history yet.")
 		return nil
 	}
 
@@ -325,22 +234,11 @@ func RunRecent(limit int) error {
 	output.PrintHeader("Recent Searches", "")
 	var rows [][]string
 	for i := len(records) - 1; i >= len(records)-limit; i-- {
-		r := records[i]
-		rows = append(rows, []string{r.Timestamp, r.Pattern})
+		rows = append(rows, []string{records[i].Timestamp, records[i].Pattern})
 	}
-
-	output.PrintTable(
-		[]string{"Timestamp", "Pattern"},
-		rows,
-		[]string{"left", "left"},
-	)
-
+	output.PrintTable([]string{"Timestamp", "Pattern"}, rows, []string{"left", "left"})
 	return nil
 }
-
-// =====================================================
-// history pattern
-// =====================================================
 
 func RunPattern(pattern string) error {
 	records, err := Load()
@@ -356,23 +254,14 @@ func RunPattern(pattern string) error {
 	}
 
 	if len(rows) == 0 {
-		output.PrintSuccess(fmt.Sprintf("No history for pattern '%s'.", pattern))
+		output.PrintSuccess(fmt.Sprintf("No history matching %q.", pattern))
 		return nil
 	}
 
 	output.PrintHeader(fmt.Sprintf("History for pattern: %s", pattern), "")
-	output.PrintTable(
-		[]string{"Timestamp", "Pattern", "Matches"},
-		rows,
-		[]string{"left", "left", "right"},
-	)
-
+	output.PrintTable([]string{"Timestamp", "Pattern", "Matches"}, rows, []string{"left", "left", "right"})
 	return nil
 }
-
-// =====================================================
-// history path
-// =====================================================
 
 func RunPath(path string) error {
 	records, err := Load()
@@ -388,90 +277,50 @@ func RunPath(path string) error {
 	}
 
 	if len(rows) == 0 {
-		output.PrintSuccess(fmt.Sprintf("No history for path '%s'.", path))
+		output.PrintSuccess(fmt.Sprintf("No history for path %q.", path))
 		return nil
 	}
 
 	output.PrintHeader(fmt.Sprintf("History for path: %s", path), "")
-	output.PrintTable(
-		[]string{"Timestamp", "Pattern", "Path"},
-		rows,
-		[]string{"left", "left", "left"},
-	)
-
+	output.PrintTable([]string{"Timestamp", "Pattern", "Path"}, rows, []string{"left", "left", "left"})
 	return nil
 }
 
-// =====================================================
-// history export
-// =====================================================
-
 func Export(dst string) error {
-
 	records, err := Load()
 	if err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(
-		records,
-		"",
-		"  ",
-	)
+	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(
-		dst,
-		data,
-		0644,
-	)
+	return os.WriteFile(dst, data, 0644)
 }
 
-// =====================================================
-// history prune
-// =====================================================
-
 func Prune(limit int) error {
-
 	records, err := Load()
 	if err != nil {
 		return err
 	}
-
 	if len(records) <= limit {
 		return nil
 	}
 
 	records = records[len(records)-limit:]
-
-	data, err := json.MarshalIndent(
-		records,
-		"",
-		"  ",
-	)
+	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(
-		historyFile(),
-		data,
-		0644,
-	)
+	return os.WriteFile(historyFile(), data, 0644)
 }
-
-// =====================================================
-// history clear
-// =====================================================
 
 func Clear() error {
 	err := os.Remove(historyFile())
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-
 	output.PrintSuccess("History cleared.")
 	return nil
 }

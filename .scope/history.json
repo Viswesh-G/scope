@@ -30,5 +30,29 @@
     "workers": 6,
     "matches": 118,
     "duration_ms": 39.4349
+  },
+  {
+    "timestamp": "2026-07-02T16:12:41+05:30",
+    "pattern": "(?i)yes",
+    "path": ".",
+    "workers": 10,
+    "matches": 0,
+    "duration_ms": 33.726800000000004
+  },
+  {
+    "timestamp": "2026-07-02T16:13:16+05:30",
+    "pattern": "(?i)github",
+    "path": ".",
+    "workers": 10,
+    "matches": 54,
+    "duration_ms": 15.644000000000002
+  },
+  {
+    "timestamp": "2026-07-02T16:18:50+05:30",
+    "pattern": "(?i)github",
+    "path": ".",
+    "workers": 10,
+    "matches": 120,
+    "duration_ms": 42.463300000000004
   }
 ]

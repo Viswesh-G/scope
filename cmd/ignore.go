@@ -1,3 +1,4 @@
+// .scope-ignore works like .gitignore - one pattern per line, # for comments
 package cmd
 
 import (
@@ -13,23 +14,19 @@ var ignoreCmd = &cobra.Command{
 	Use:   "ignore",
 	Short: "Manage .scope-ignore file",
 	Long: `Manage the .scope-ignore file in the current directory.
-The ignore file is used to specify which directories or files should be skipped during a search.
-Commands allow you to initialize, add, remove, or list patterns within this file.`,
+Works like .gitignore: one pattern per line, # for comments, wildcards supported.`,
 }
 
 var ignoreInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize a .scope-ignore file with defaults",
-	Long: `Creates a new .scope-ignore file in the current directory.
-It automatically seeds the file with standard default directories to ignore,
-such as .git, node_modules, vendor, build, and dist.`,
+	Short: "Create a .scope-ignore with default patterns",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := os.Stat(".scope-ignore"); err == nil {
-			return fmt.Errorf(".scope-ignore already exists in the current directory")
+			return fmt.Errorf(".scope-ignore already exists")
 		}
 
 		defaults := []string{
-			"# scope-ignore",
+			"# scope-ignore - patterns to skip during searches",
 			".git",
 			"node_modules",
 			"vendor",
@@ -37,24 +34,21 @@ such as .git, node_modules, vendor, build, and dist.`,
 			"dist",
 		}
 
-		if err := os.WriteFile(".scope-ignore", []byte(strings.Join(defaults, "\n")+"\n"), 0644); err != nil {
+		content := strings.Join(defaults, "\n") + "\n"
+		if err := os.WriteFile(".scope-ignore", []byte(content), 0644); err != nil {
 			return err
 		}
-
-		output.PrintSuccess("Initialized .scope-ignore with defaults")
+		output.PrintSuccess("Created .scope-ignore with default patterns")
 		return nil
 	},
 }
 
 var ignoreAddCmd = &cobra.Command{
-	Use:   "add [pattern]",
+	Use:  "add [pattern]",
 	Short: "Add a pattern to .scope-ignore",
-	Long: `Add a specific file, directory, or wildcard pattern to the .scope-ignore file.
-Examples:
-  scope ignore add "build/"
-  scope ignore add "*.log"`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// O_APPEND so we don't overwrite existing content, O_CREATE if file doesn't exist yet
 		f, err := os.OpenFile(".scope-ignore", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			return err
@@ -65,8 +59,7 @@ Examples:
 		if _, err := f.WriteString(pattern + "\n"); err != nil {
 			return err
 		}
-
-		output.PrintSuccess(fmt.Sprintf("Added %s to .scope-ignore", pattern))
+		output.PrintSuccess(fmt.Sprintf("Added %q to .scope-ignore", pattern))
 		return nil
 	},
 }
@@ -74,42 +67,40 @@ Examples:
 var ignoreRemoveCmd = &cobra.Command{
 	Use:   "remove [pattern]",
 	Short: "Remove a pattern from .scope-ignore",
-	Long:  "Safely removes a previously added pattern from the local .scope-ignore file.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		b, err := os.ReadFile(".scope-ignore")
 		if err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf(".scope-ignore does not exist")
+				return fmt.Errorf(".scope-ignore doesn't exist - run 'scope ignore init' first")
 			}
 			return err
 		}
 
+		pattern := args[0]
 		lines := strings.Split(string(b), "\n")
+
 		var newLines []string
 		found := false
-
-		pattern := args[0]
 		for _, line := range lines {
 			if strings.TrimSpace(line) == pattern {
 				found = true
 				continue
 			}
-			if line != "" || len(newLines) > 0 { // keep non-empty, but avoid double empty line at end if we trim
+			if line != "" || len(newLines) > 0 {
 				newLines = append(newLines, line)
 			}
 		}
 
 		if !found {
-			output.PrintWarning(fmt.Sprintf("Pattern %s not found in .scope-ignore", pattern))
+			output.PrintWarning(fmt.Sprintf("%q not found in .scope-ignore", pattern))
 			return nil
 		}
 
 		if err := os.WriteFile(".scope-ignore", []byte(strings.Join(newLines, "\n")), 0644); err != nil {
 			return err
 		}
-
-		output.PrintSuccess(fmt.Sprintf("Removed %s from .scope-ignore", pattern))
+		output.PrintSuccess(fmt.Sprintf("Removed %q from .scope-ignore", pattern))
 		return nil
 	},
 }
@@ -117,17 +108,15 @@ var ignoreRemoveCmd = &cobra.Command{
 var ignoreListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all patterns in .scope-ignore",
-	Long:  "Display all the ignore patterns currently configured in the local .scope-ignore file.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		b, err := os.ReadFile(".scope-ignore")
 		if err != nil {
 			if os.IsNotExist(err) {
-				output.PrintWarning("No .scope-ignore found")
+				output.PrintWarning("No .scope-ignore found. Run 'scope ignore init' to create one.")
 				return nil
 			}
 			return err
 		}
-
 		output.PrintHeader("Patterns in .scope-ignore", "")
 		fmt.Print(string(b))
 		fmt.Println()

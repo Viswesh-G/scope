@@ -1,3 +1,8 @@
+// This file implements `scope deps` — scanning Go source files and counting
+// how many times each import package is referenced across the codebase.
+//
+// It uses a regex to find all import blocks and single-line imports,
+// then extracts each quoted package path and tallies them.
 package analysis
 
 import (
@@ -11,15 +16,23 @@ import (
 	"github.com/Viswesh-G/scope/internal/output"
 )
 
-var importRe = regexp.MustCompile(`(?m)^\s*import\s+(?:(?:[a-zA-Z0-9_]+\s+)?("[^"]+")|\(([\s\S]*?)\))`)
+// importRe matches Go import statements in two forms:
+//   - Single: import "pkg/name"
+//   - Block:  import ( "pkg/a" \n "pkg/b" )
+var importRe = regexp.MustCompile(`(?m)^\s*import\s+(?:(?:[a-zA-Z0-9_]+\s+)?("([^"]+)"|\([\s\S]*?\)))`)
+
+// singleImportRe extracts quoted package paths from import text.
 var singleImportRe = regexp.MustCompile(`"([^"]+)"`)
 
+// RunDeps walks all .go files in path and counts how often each package
+// is imported. Results are printed sorted by import count (most used first).
 func RunDeps(path string) error {
 	ig, err := ignore.LoadIgnoreFile(filepath.Join(path, ".scope-ignore"))
 	if err != nil {
 		return fmt.Errorf("loading .scope-ignore: %w", err)
 	}
 
+	// Map from import path (e.g. "fmt") to how many files import it.
 	deps := make(map[string]int)
 
 	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
@@ -32,37 +45,31 @@ func RunDeps(path string) error {
 			}
 			return nil
 		}
+		// Only scan .go source files.
 		if ignore.ShouldSkipFile(p, ig) || filepath.Ext(p) != ".go" {
 			return nil
 		}
 
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return nil
+			return nil // skip unreadable files
 		}
 
+		// Find all import statements in this file.
 		matches := importRe.FindAllStringSubmatch(string(data), -1)
 		for _, m := range matches {
-			if m[1] != "" {
-				// Single import
-				pkg := singleImportRe.FindStringSubmatch(m[1])
+			// Extract all quoted package paths from each import statement.
+			pkgs := singleImportRe.FindAllStringSubmatch(m[0], -1)
+			for _, pkg := range pkgs {
 				if len(pkg) > 1 {
 					deps[pkg[1]]++
 				}
-			} else if m[2] != "" {
-				// Block import
-				blockMatches := singleImportRe.FindAllStringSubmatch(m[2], -1)
-				for _, bm := range blockMatches {
-					if len(bm) > 1 {
-						deps[bm[1]]++
-					}
-				}
 			}
 		}
-
 		return nil
 	})
 
+	// Sort by count descending, then alphabetically for ties.
 	type depCount struct {
 		pkg   string
 		count int
@@ -71,7 +78,6 @@ func RunDeps(path string) error {
 	for pkg, count := range deps {
 		list = append(list, depCount{pkg, count})
 	}
-
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].count == list[j].count {
 			return list[i].pkg < list[j].pkg
@@ -85,12 +91,10 @@ func RunDeps(path string) error {
 	for _, d := range list {
 		rows = append(rows, []string{d.pkg, fmt.Sprintf("%d", d.count)})
 	}
-
 	output.PrintTable(
-		[]string{"Package", "Imports"},
+		[]string{"Package", "Import Count"},
 		rows,
 		[]string{"left", "right"},
 	)
-
 	return nil
 }

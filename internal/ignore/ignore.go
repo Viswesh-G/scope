@@ -1,3 +1,11 @@
+// Package ignore figures out which files and directories to skip.
+//
+// Two sources of rules:
+//   1. defaults.yaml - baked into the binary at compile time via go:embed.
+//      Covers .git, node_modules, binary extensions, etc.
+//   2. .scope-ignore  - optional per-repo file, same format as .gitignore.
+//
+// Both are checked on every file/dir the walker visits.
 package ignore
 
 import (
@@ -10,9 +18,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// embed the defaults file directly into the binary at compile time.
+// this means we don't need to ship the yaml file alongside the binary.
+//
 //go:embed defaults.yaml
 var defaultsYAML []byte
 
+// using maps for O(1) lookup instead of scanning a list each time
 var ignoredDirs map[string]struct{}
 var ignoredExtensions map[string]struct{}
 
@@ -24,7 +36,6 @@ func init() {
 		Dirs       []string `yaml:"dirs"`
 		Extensions []string `yaml:"extensions"`
 	}
-
 	if err := yaml.Unmarshal(defaultsYAML, &defaults); err != nil {
 		panic("failed to load ignore defaults: " + err.Error())
 	}
@@ -37,41 +48,39 @@ func init() {
 	}
 }
 
-// IgnoreMatcher holds a list of compiled patterns.
+// IgnoreMatcher holds patterns loaded from a .scope-ignore file.
+// nil is safe to pass to ShouldSkipDir/ShouldSkipFile (handled gracefully).
 type IgnoreMatcher struct {
 	Patterns []string
 }
 
-// ShouldSkipDir returns true when the walker should skip an entire directory.
-func ShouldSkipDir(name string, ignore *IgnoreMatcher) bool {
+func ShouldSkipDir(name string, ig *IgnoreMatcher) bool {
 	if _, ok := ignoredDirs[name]; ok {
 		return true
 	}
-	if ignore != nil && ignore.ShouldIgnore(name) {
+	if ig != nil && ig.ShouldIgnore(name) {
 		return true
 	}
 	return false
 }
 
-// ShouldSkipFile returns true when a file should NOT be searched.
-func ShouldSkipFile(path string, ignore *IgnoreMatcher) bool {
+func ShouldSkipFile(path string, ig *IgnoreMatcher) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	if _, ok := ignoredExtensions[ext]; ok {
 		return true
 	}
-
+	// skip the scope binary itself so it doesn't try to search inside its own exe
 	if filepath.Base(path) == "scope" {
 		return true
 	}
-
-	if ignore != nil && ignore.ShouldIgnore(path) {
+	if ig != nil && ig.ShouldIgnore(path) {
 		return true
 	}
-
 	return false
 }
 
-// LoadIgnoreFile reads a .scope-ignore file and returns an IgnoreMatcher.
+// LoadIgnoreFile reads a .scope-ignore file.
+// Returns (nil, nil) if the file doesn't exist - that's not an error.
 func LoadIgnoreFile(path string) (*IgnoreMatcher, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -99,10 +108,13 @@ func LoadIgnoreFile(path string) (*IgnoreMatcher, error) {
 	return &IgnoreMatcher{Patterns: patterns}, nil
 }
 
-// ShouldIgnore checks whether path matches any pattern in the IgnoreMatcher.
+// ShouldIgnore checks if a path matches any stored pattern.
+// Tries three matching strategies in order:
+//   1. exact basename match  ("Makefile" matches any file named Makefile)
+//   2. glob match            ("*.log" matches "app.log")
+//   3. substring match       ("vendor/" matches "vendor/pkg/file.go")
 func (m *IgnoreMatcher) ShouldIgnore(path string) bool {
 	base := filepath.Base(path)
-
 	for _, pattern := range m.Patterns {
 		if base == pattern {
 			return true
@@ -114,6 +126,5 @@ func (m *IgnoreMatcher) ShouldIgnore(path string) bool {
 			return true
 		}
 	}
-
 	return false
 }

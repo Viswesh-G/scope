@@ -1,3 +1,5 @@
+// This file defines `scope graph` — prints the repository directory tree,
+// optionally as a Graphviz DOT file for visualization.
 package cmd
 
 import (
@@ -5,10 +7,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// graphCmd renders the directory structure as a tree or DOT graph.
 var graphCmd = &cobra.Command{
 	Use:   "graph",
-	Short: "Build directory tree graph",
-	Long:  `Build a directory tree graph of the repository, respecting ignore rules.`,
+	Short: "Print the directory tree",
+	Long: `Walk the repository and print its directory structure as a tree.
+Respects .scope-ignore rules (same as search).
+
+Use --dot to export a Graphviz DOT file instead of an ASCII tree.
+You can then visualise it with: dot -Tsvg graph.dot > graph.svg
+
+Examples:
+  scope graph
+  scope graph --path ./internal
+  scope graph --dot > graph.dot`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path, _ := cmd.Flags().GetString("path")
 		dot, _ := cmd.Flags().GetBool("dot")
@@ -16,8 +28,9 @@ var graphCmd = &cobra.Command{
 	},
 }
 
+// init registers the graph command.
 func init() {
 	rootCmd.AddCommand(graphCmd)
-	graphCmd.Flags().String("path", ".", "search path")
-	graphCmd.Flags().Bool("dot", false, "export to Graphviz DOT format")
+	graphCmd.Flags().String("path", ".", "directory to graph")
+	graphCmd.Flags().Bool("dot", false, "output Graphviz DOT format instead of ASCII tree")
 }

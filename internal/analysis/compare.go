@@ -1,10 +1,20 @@
+// This file implements the `scope compare` benchmark — running scope and ripgrep
+// head-to-head and computing a full statistical comparison.
+//
+// Benchmark methodology:
+//   1. Warmup rounds: both tools run a few times with the results discarded.
+//      This warms the OS file cache so neither tool has a cold-start advantage.
+//   2. Timed rounds: both tools run alternately (scope-first, then rg-first,
+//      then rg-first, then scope-first, etc.) so neither tool benefits
+//      systematically from the other having warmed the cache first.
+//   3. Statistics: mean, trimmed mean (10%), P50/P95/P99, standard deviation,
+//      throughput, and a Mann-Whitney U significance test.
 package analysis
 
 import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,33 +25,36 @@ import (
 	"github.com/Viswesh-G/scope/internal/output"
 )
 
-// CompareResult holds the outcome of a benchmark run for a single tool.
+// CompareResult holds benchmark results for one tool (scope or ripgrep).
 type CompareResult struct {
-	Tool         string
-	Duration     time.Duration // mean across timed runs
-	BytesScanned int64
-	FileCount    int64
+	Tool         string        // tool name for display ("Scope" or "Ripgrep")
+	Duration     time.Duration // arithmetic mean of all timed runs
+	BytesScanned int64         // total bytes in the search directory
+	FileCount    int64         // total files in the search directory
 
-	// Per-run samples (timed runs only, after warmup)
+	// Raw samples from each timed run (after warmup rounds are discarded).
 	Samples []time.Duration
 
-	// Derived stats
-	P50         time.Duration
-	P95         time.Duration
-	P99         time.Duration
-	Min         time.Duration
-	Max         time.Duration
-	StdDev      time.Duration
-	TrimmedMean time.Duration // 10% trimmed mean — outlier-resistant
+	// Derived statistics computed from Samples.
+	P50         time.Duration // 50th percentile (median)
+	P95         time.Duration // 95th percentile
+	P99         time.Duration // 99th percentile
+	Min         time.Duration // fastest single run
+	Max         time.Duration // slowest single run
+	StdDev      time.Duration // standard deviation (spread of results)
+	TrimmedMean time.Duration // mean after dropping top+bottom 10% (outlier-resistant)
 }
 
-// RunResult captures a single execution: wall time + files matched.
+// RunResult captures the outcome of running one tool once.
 type RunResult struct {
-	Duration  time.Duration
-	FileCount int
-	Err       error
+	Duration  time.Duration // wall-clock time from start to finish
+	FileCount int           // number of non-empty output lines (approximate match count)
+	Err       error         // any error from running the command
 }
 
+// runCommand executes a command and measures its wall-clock duration.
+// It counts non-empty output lines as a proxy for match count.
+// Exit code 1 from ripgrep means "no matches" — that's not an error for us.
 func runCommand(name string, args ...string) RunResult {
 	start := time.Now()
 	cmd := exec.Command(name, args...)
@@ -60,6 +73,9 @@ func runCommand(name string, args ...string) RunResult {
 	return RunResult{Duration: dur, FileCount: fileCount, Err: err}
 }
 
+// isExitErr returns true when a command exited with a non-zero exit code.
+// This is distinct from a system error (e.g. binary not found).
+// ripgrep exits with code 1 when it finds no matches — that's expected.
 func isExitErr(err error) bool {
 	if err == nil {
 		return false
@@ -591,10 +607,4 @@ func throughputMBs(bytes int64, d time.Duration) float64 {
 		return 0
 	}
 	return float64(bytes) / d.Seconds() / 1024 / 1024
-}
-
-// ── Utility: keep rand seeded so warmup alternation stays non-deterministic
-// across test harness calls (used if caller ever adds random ordering mode).
-func init() {
-	rand.New(rand.NewSource(time.Now().UnixNano()))
 }

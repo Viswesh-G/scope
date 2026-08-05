@@ -1,3 +1,5 @@
+// BuildReport takes a live Registry and produces a clean Report for display.
+// Called once after the search is done - snapshots all the atomic counters.
 package metrics
 
 import (
@@ -6,6 +8,7 @@ import (
 	"time"
 )
 
+// Report is the cleaned-up version of Registry. Passed to the renderer.
 type Report struct {
 	DirsScanned  int64
 	FilesScanned int64
@@ -16,28 +19,28 @@ type Report struct {
 	SearchDuration time.Duration
 	TotalDuration  time.Duration
 
+	// Parallelism = SearchDuration / TotalDuration
+	// If 4 workers each spent 100ms scanning, SearchDuration = 400ms.
+	// If the whole search took 120ms wall time, Parallelism = 400/120 ≈ 3.3x
+	// meaning we got 3.3x the throughput we'd get with a single worker.
 	Parallelism float64
 
 	Workers []WorkerReport
-
 	Balance LoadBalance
 }
 
 type WorkerReport struct {
-	ID int
-
+	ID           int
 	FilesScanned int64
 	MatchesFound int64
 	BytesScanned int64
 	WorkDuration time.Duration
-
-	// Throughput in bytes per second (0 if WorkDuration == 0)
-	Throughput float64
-
-	Files []string
+	Throughput   float64  // bytes/second, 0 if WorkDuration == 0
+	Files        []string
 }
 
-// LoadBalance summarises how evenly work was distributed across workers.
+// LoadBalance summarises how evenly files were split across workers.
+// Imbalance = MaxFiles / MinFiles. 1.0 is perfect, higher = uneven.
 type LoadBalance struct {
 	MaxFiles  int64
 	MinFiles  int64
@@ -45,10 +48,9 @@ type LoadBalance struct {
 	MaxBytes  int64
 	MinBytes  int64
 	AvgBytes  float64
-	Imbalance float64 // maxFiles / minFiles (or 1 when minFiles == 0)
+	Imbalance float64
 
-	// Workers ranked by bytes scanned descending.
-	Ranked []WorkerReport
+	Ranked []WorkerReport // workers sorted by bytes scanned (busiest first)
 }
 
 func BuildReport(r *Registry) Report {
@@ -110,20 +112,11 @@ func computeBalance(workers []WorkerReport) LoadBalance {
 	)
 
 	for _, w := range workers {
-		if w.FilesScanned > maxFiles {
-			maxFiles = w.FilesScanned
-		}
-		if w.FilesScanned < minFiles {
-			minFiles = w.FilesScanned
-		}
+		if w.FilesScanned > maxFiles { maxFiles = w.FilesScanned }
+		if w.FilesScanned < minFiles { minFiles = w.FilesScanned }
 		sumFiles += w.FilesScanned
-
-		if w.BytesScanned > maxBytes {
-			maxBytes = w.BytesScanned
-		}
-		if w.BytesScanned < minBytes {
-			minBytes = w.BytesScanned
-		}
+		if w.BytesScanned > maxBytes { maxBytes = w.BytesScanned }
+		if w.BytesScanned < minBytes { minBytes = w.BytesScanned }
 		sumBytes += w.BytesScanned
 	}
 
@@ -132,13 +125,12 @@ func computeBalance(workers []WorkerReport) LoadBalance {
 	if minFiles > 0 {
 		imbalance = float64(maxFiles) / float64(minFiles)
 	} else if maxFiles > 0 {
-		imbalance = float64(maxFiles) // any/0 → show max as imbalance
+		imbalance = float64(maxFiles) // one worker got everything, others got nothing
 	}
 
 	ranked := make([]WorkerReport, len(workers))
 	copy(ranked, workers)
 	sort.Slice(ranked, func(i, j int) bool {
-		// Primary: bytes scanned desc; secondary: matches desc
 		if ranked[i].BytesScanned != ranked[j].BytesScanned {
 			return ranked[i].BytesScanned > ranked[j].BytesScanned
 		}

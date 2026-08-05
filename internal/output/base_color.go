@@ -1,4 +1,6 @@
-// internal/output/base_color.go
+// Global color variables used everywhere in the output package.
+// All colors are user-configurable via `scope config set-color` and saved
+// in ~/.scope-config.yaml. InitColors() reads the config and sets these up.
 package output
 
 import (
@@ -18,6 +20,8 @@ var (
 	TimeColor    *color.Color
 )
 
+// InitColors reads user config from viper and sets all the color variables.
+// Falls back to the hardcoded defaults if a config value is missing.
 func InitColors() {
 	TitleColor = getColor("title", color.FgCyan, color.Bold)
 	SectionColor = getColor("section", color.FgBlue, color.Bold)
@@ -31,12 +35,15 @@ func InitColors() {
 }
 
 func getColor(element string, defaultAttrs ...color.Attribute) *color.Color {
-	cName := viper.GetString("colors." + element)
-	attr := MapColor(cName)
+	colorName := viper.GetString("colors." + element)
+	attr := MapColor(colorName)
+
 	if attr == 0 && len(defaultAttrs) > 0 {
 		return color.New(defaultAttrs...)
 	}
 
+	// preserve Bold from the defaults even when the user picks a custom color
+	// (so section headers stay bold regardless of color choice)
 	var attrs []color.Attribute
 	attrs = append(attrs, attr)
 	for _, da := range defaultAttrs {
@@ -44,49 +51,31 @@ func getColor(element string, defaultAttrs ...color.Attribute) *color.Color {
 			attrs = append(attrs, color.Bold)
 		}
 	}
-
 	return color.New(attrs...)
 }
 
+// MapColor converts a config color name (like "cyan" or "higreen") to a
+// color.Attribute. Returns 0 if the name isn't recognised.
 func MapColor(name string) color.Attribute {
 	switch name {
-	case "black":
-		return color.FgBlack
-	case "red":
-		return color.FgRed
-	case "green":
-		return color.FgGreen
-	case "yellow":
-		return color.FgYellow
-	case "blue":
-		return color.FgBlue
-	case "magenta":
-		return color.FgMagenta
-	case "cyan":
-		return color.FgCyan
-	case "white":
-		return color.FgWhite
-	case "hiblack":
-		return color.FgHiBlack
-	case "hired":
-		return color.FgHiRed
-	case "higreen":
-		return color.FgHiGreen
-	case "hiyellow":
-		return color.FgHiYellow
-	case "hiblue":
-		return color.FgHiBlue
-	case "himagenta":
-		return color.FgHiMagenta
-	case "hicyan":
-		return color.FgHiCyan
-	case "hiwhite":
-		return color.FgHiWhite
-	case "faint":
-		return color.Faint
-	case "bold":
-		return color.Bold
-	default:
-		return 0
+	case "black":    return color.FgBlack
+	case "red":      return color.FgRed
+	case "green":    return color.FgGreen
+	case "yellow":   return color.FgYellow
+	case "blue":     return color.FgBlue
+	case "magenta":  return color.FgMagenta
+	case "cyan":     return color.FgCyan
+	case "white":    return color.FgWhite
+	case "hiblack":  return color.FgHiBlack
+	case "hired":    return color.FgHiRed
+	case "higreen":  return color.FgHiGreen
+	case "hiyellow": return color.FgHiYellow
+	case "hiblue":   return color.FgHiBlue
+	case "himagenta":return color.FgHiMagenta
+	case "hicyan":   return color.FgHiCyan
+	case "hiwhite":  return color.FgHiWhite
+	case "faint":    return color.Faint
+	case "bold":     return color.Bold
+	default:         return 0
 	}
 }

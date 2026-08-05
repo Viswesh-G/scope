@@ -1,3 +1,22 @@
+// This file defines the `scope history` command and all its subcommands.
+//
+// Every time you run `scope search`, the search details (pattern, path,
+// duration, match count) are saved to .scope/history.json. The history
+// commands let you explore that data: see recent searches, find the slowest
+// ones, filter by pattern, export to JSON, and more.
+//
+// Subcommands:
+//   scope history           — show all recent searches
+//   scope history stats     — aggregate stats (total, avg time, fastest, slowest)
+//   scope history top       — most frequently searched patterns
+//   scope history slowest   — top 10 slowest searches
+//   scope history fastest   — top 10 fastest searches
+//   scope history recent    — N most recent searches
+//   scope history pattern   — filter history by pattern text
+//   scope history path      — filter history by search path
+//   scope history export    — export history to a JSON file
+//   scope history prune     — keep only the newest N records
+//   scope history clear     — delete all history
 package cmd
 
 import (
@@ -8,201 +27,129 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Flag values for history subcommands.
 var (
-	recentLimit int
-	exportFile  string
+	recentLimit int    // --limit : how many recent entries to show
+	exportFile  string // -o / --output : file to write exported history to
 )
 
+// historyCmd is the parent `scope history` command.
+// Running it with no subcommand shows a full chronological list.
 var historyCmd = &cobra.Command{
-    Use:   "history",
-    Short: "Search history and analytics",
-    Long: `Inspect previous searches, performance statistics,
-popular patterns, exports and history management.`,
-    RunE: func(
-        cmd *cobra.Command,
-        args []string,
-    ) error {
-        return analysis.RunHistory()
-    },
-}
-// =====================================================
-// history stats
-// =====================================================
+	Use:   "history",
+	Short: "View and manage search history",
+	Long: `Explore your past searches. Every scope search is recorded to .scope/history.json.
 
+Run with no subcommand to see all recent searches in a table.
+Use subcommands for filtering, statistics, and management.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return analysis.RunHistory()
+	},
+}
+
+// historyStatsCmd shows aggregate metrics across all recorded searches.
 var historyStatsCmd = &cobra.Command{
 	Use:   "stats",
-	Short: "Show search history statistics",
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	Short: "Show aggregate statistics over all history",
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.RunStats()
 	},
 }
 
-// =====================================================
-// history top
-// =====================================================
-
+// historyTopCmd lists the most frequently searched patterns.
 var historyTopCmd = &cobra.Command{
 	Use:   "top",
 	Short: "Show most frequently searched patterns",
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.RunTop()
 	},
 }
 
-// =====================================================
-// history slowest
-// =====================================================
-
+// historySlowestCmd shows the 10 slowest searches you have run.
 var historySlowestCmd = &cobra.Command{
 	Use:   "slowest",
-	Short: "Show slowest searches",
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	Short: "Show the 10 slowest searches",
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.RunSlowest()
 	},
 }
 
-// =====================================================
-// history fastest
-// =====================================================
-
+// historyFastestCmd shows the 10 fastest searches you have run.
 var historyFastestCmd = &cobra.Command{
 	Use:   "fastest",
-	Short: "Show fastest searches",
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	Short: "Show the 10 fastest searches",
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.RunFastest()
 	},
 }
 
-// =====================================================
-// history recent
-// =====================================================
-
+// historyRecentCmd shows the N most recent searches (default: 10).
 var historyRecentCmd = &cobra.Command{
 	Use:   "recent",
-	Short: "Show most recent searches",
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	Short: "Show the most recent N searches",
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.RunRecent(recentLimit)
 	},
 }
 
-// =====================================================
-// history pattern
-// =====================================================
-
+// historyPatternCmd filters history to only show entries matching a pattern string.
 var historyPatternCmd = &cobra.Command{
 	Use:   "pattern <text>",
-	Short: "Filter history by pattern",
+	Short: "Filter history by pattern text",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.RunPattern(args[0])
 	},
 }
 
-// =====================================================
-// history path
-// =====================================================
-
+// historyPathCmd filters history to only show entries for a specific search path.
 var historyPathCmd = &cobra.Command{
 	Use:   "path <path>",
 	Short: "Filter history by search path",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.RunPath(args[0])
 	},
 }
 
-// =====================================================
-// history export
-// =====================================================
-
+// historyExportCmd dumps the full history to a JSON file.
 var historyExportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "Export history to JSON file",
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	Short: "Export history to a JSON file",
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.Export(exportFile)
 	},
 }
 
-// =====================================================
-// history prune
-// =====================================================
-
+// historyPruneCmd trims history to keep only the newest N records.
+// Useful for keeping the history file from growing unbounded.
 var historyPruneCmd = &cobra.Command{
 	Use:   "prune <count>",
 	Short: "Keep only the newest N history entries",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	RunE: func(cmd *cobra.Command, args []string) error {
 		limit, err := strconv.Atoi(args[0])
 		if err != nil {
-			return fmt.Errorf(
-				"invalid count %q",
-				args[0],
-			)
+			return fmt.Errorf("invalid count %q: must be a whole number", args[0])
 		}
-
 		if limit <= 0 {
-			return fmt.Errorf(
-				"count must be > 0",
-			)
+			return fmt.Errorf("count must be greater than 0")
 		}
-
 		return analysis.Prune(limit)
 	},
 }
-// =====================================================
-// history clear
-// =====================================================
 
+// historyClearCmd deletes all stored search history.
 var historyClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Delete all search history",
-	RunE: func(
-		cmd *cobra.Command,
-		args []string,
-	) error {
-
+	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.Clear()
 	},
 }
 
+// init wires all history subcommands into the command tree and defines flags.
 func init() {
-
 	rootCmd.AddCommand(historyCmd)
 
 	historyCmd.AddCommand(historyStatsCmd)
@@ -216,21 +163,15 @@ func init() {
 	historyCmd.AddCommand(historyPruneCmd)
 	historyCmd.AddCommand(historyClearCmd)
 
+	// --limit flag for `scope history recent`
 	historyRecentCmd.Flags().IntVarP(
-		&recentLimit,
-		"limit",
-		"n",
-		10,
+		&recentLimit, "limit", "n", 10,
 		"number of recent searches to show",
 	)
 
+	// -o / --output flag for `scope history export`
 	historyExportCmd.Flags().StringVarP(
-		&exportFile,
-		"output",
-		"o",
-		"history_export.json",
-		"output JSON file",
+		&exportFile, "output", "o", "history_export.json",
+		"output JSON file path",
 	)
-
-	
 }

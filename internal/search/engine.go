@@ -1,4 +1,5 @@
-// internal/search/engine.go
+// This is where the actual searching happens.
+// The high-level flow: walker → fileCh → workers → matchCh → collector → output
 package search
 
 import (
@@ -13,19 +14,20 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Viswesh-G/scope/internal/analysis"
 	"github.com/Viswesh-G/scope/internal/ignore"
 	"github.com/Viswesh-G/scope/internal/metrics"
 	"github.com/Viswesh-G/scope/internal/output"
-	"github.com/Viswesh-G/scope/internal/analysis"
-
 )
 
 func Run(cfg Config) error {
 	registry := metrics.NewRegistry(cfg.Workers)
 	totalStart := time.Now()
 
-	// Detect literal pattern (no regex metacharacters) for strings.Contains fast-path.
-	// Must be checked before we prepend (?i), which is our own addition.
+	// -- literal fast-path --
+	// if the pattern is plain text (no regex metacharacters like . * + etc),
+	// strings.Contains is 5-10x faster than running the full regex engine.
+	// check this BEFORE prepending (?i), which would break the literal check.
 	literal := ""
 	if isLiteralPattern(cfg.Pattern) {
 		if cfg.IgnoreCase {
@@ -35,18 +37,15 @@ func Run(cfg Config) error {
 		}
 	}
 
-	// Ignore case support
 	if cfg.IgnoreCase {
 		cfg.Pattern = "(?i)" + cfg.Pattern
 	}
 
-	// Compile regex once
 	re, err := regexp.Compile(cfg.Pattern)
 	if err != nil {
 		return fmt.Errorf("invalid pattern %q: %w", cfg.Pattern, err)
 	}
 
-	// Load .scope-ignore
 	ig, err := ignore.LoadIgnoreFile(filepath.Join(cfg.Path, ".scope-ignore"))
 	if err != nil {
 		return fmt.Errorf("loading .scope-ignore: %w", err)
@@ -55,23 +54,23 @@ func Run(cfg Config) error {
 	fileCh := make(chan string, cfg.Workers*4)
 	matchCh := make(chan Match, 256)
 
-	// Walker
+	// stage 1: walk the filesystem, send paths into fileCh
 	go func() {
 		start := time.Now()
 		walkFiles(cfg, ig, fileCh, registry)
 		registry.WalkDuration = time.Since(start)
 	}()
 
-	// Workers
+	// stage 2: workers pull paths from fileCh, scan files, push matches into matchCh
 	wg := startWorkers(cfg, re, literal, fileCh, matchCh, registry)
 
-	// Close match channel
+	// close matchCh once all workers are done so the collector knows to stop
 	go func() {
 		wg.Wait()
 		close(matchCh)
 	}()
 
-	// Collector
+	// stage 3: drain matchCh - either print each match or build a hotspot ranking
 	if cfg.Hotspots {
 		collectHotspots(matchCh)
 	} else {
@@ -88,33 +87,23 @@ func Run(cfg Config) error {
 	}
 
 	registry.TotalDuration = time.Since(totalStart)
-	report := metrics.BuildReport(registry) // report build
-
-	renderer := output.ConsoleRenderer{}
-	renderer.Render(report) // render the report
+	output.ConsoleRenderer{}.Render(metrics.BuildReport(registry))
 
 	if !cfg.SkipHistory {
-		analysis.Save(
-			analysis.SearchRecord{
-				Timestamp: time.Now().
-					Format(time.RFC3339),
-				Pattern:    cfg.Pattern,
-				Path:       cfg.Path,
-				Workers:    cfg.Workers,
-				Matches:    registry.MatchesFound,
-				DurationMs: registry.TotalDuration.Seconds() * 1000,
-			},
-		)
+		analysis.Save(analysis.SearchRecord{
+			Timestamp:  time.Now().Format(time.RFC3339),
+			Pattern:    cfg.Pattern,
+			Path:       cfg.Path,
+			Workers:    cfg.Workers,
+			Matches:    registry.MatchesFound,
+			DurationMs: registry.TotalDuration.Seconds() * 1000,
+		})
 	}
-
-
 
 	return nil
 }
 
-// --------------------------------------------------------------------
-// WALKER
-// --------------------------------------------------------------------
+// -- walker --
 
 func walkFiles(cfg Config, ig *ignore.IgnoreMatcher, fileCh chan<- string, registry *metrics.Registry) {
 	defer close(fileCh)
@@ -146,9 +135,7 @@ func walkFiles(cfg Config, ig *ignore.IgnoreMatcher, fileCh chan<- string, regis
 	})
 }
 
-// --------------------------------------------------------------------
-// WORKERS
-// --------------------------------------------------------------------
+// -- workers --
 
 func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan string, matchCh chan<- Match, registry *metrics.Registry) *sync.WaitGroup {
 	var wg sync.WaitGroup
@@ -161,9 +148,10 @@ func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan s
 			defer wg.Done()
 			workerStats := registry.Workers[workerID]
 
-			// Build per-worker match function.
-			// Literal path: strings.Contains (5–10× faster, no NFA overhead).
-			// Regex path: re.Copy() gives each worker its own state machine.
+			// each worker gets its own match function.
+			// for plain text: strings.Contains (fast, no regex overhead).
+			// for regex: re.Copy() gives each goroutine its own state machine
+			// to avoid data races on the internal regex state.
 			var matchFn func(string) bool
 			if literal != "" {
 				if cfg.IgnoreCase {
@@ -171,9 +159,7 @@ func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan s
 						return strings.Contains(strings.ToLower(line), literal)
 					}
 				} else {
-					matchFn = func(line string) bool {
-						return strings.Contains(line, literal)
-					}
+					matchFn = func(line string) bool { return strings.Contains(line, literal) }
 				}
 			} else {
 				workerRe := re.Copy()
@@ -190,13 +176,17 @@ func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan s
 				searchStart := time.Now()
 				var bytesScanned int64
 				var matches []Match
+
 				if cfg.FilenameOnly {
 					matches = searchFilename(path, matchFn)
 				} else {
-					bytesScanned, matches = searchFileWithData(path, matchFn)
+					bytesScanned, matches = searchFileContents(path, matchFn)
 				}
+
 				elapsed := time.Since(searchStart)
 
+				// all these counters are shared across goroutines,
+				// so we use atomic operations instead of a mutex
 				atomic.AddInt64(&workerStats.BytesScanned, bytesScanned)
 				atomic.AddInt64(&workerStats.WorkTimeNs, elapsed.Nanoseconds())
 				atomic.AddInt64(&registry.SearchTimeNs, elapsed.Nanoseconds())
@@ -213,11 +203,9 @@ func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan s
 	return &wg
 }
 
-// --------------------------------------------------------------------
-// FILE SEARCH
-// --------------------------------------------------------------------
+// -- file scanning --
 
-func searchFileWithData(path string, matchFn func(string) bool) (int64, []Match) {
+func searchFileContents(path string, matchFn func(string) bool) (int64, []Match) {
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, nil
@@ -231,17 +219,13 @@ func searchFileWithData(path string, matchFn func(string) bool) (int64, []Match)
 
 	var matches []Match
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1<<20), 1<<20) // 1 MB cap: handles minified JS, long log lines
+	scanner.Buffer(make([]byte, 1<<20), 1<<20) // 1MB buffer handles long lines (minified JS, logs, etc.)
 
 	lineNum := 1
 	for scanner.Scan() {
 		line := scanner.Text()
 		if matchFn(line) {
-			matches = append(matches, Match{
-				File:    path,
-				LineNum: lineNum,
-				Line:    line,
-			})
+			matches = append(matches, Match{File: path, LineNum: lineNum, Line: line})
 		}
 		lineNum++
 	}
@@ -251,23 +235,13 @@ func searchFileWithData(path string, matchFn func(string) bool) (int64, []Match)
 
 func searchFilename(path string, matchFn func(string) bool) []Match {
 	name := filepath.Base(path)
-
 	if !matchFn(name) {
 		return nil
 	}
-
-	return []Match{
-		{
-			Mode: FilenameSearch,
-			Line: name,
-			File: path,
-		},
-	}
+	return []Match{{Mode: FilenameSearch, File: path, Line: name}}
 }
 
-// --------------------------------------------------------------------
-// HOTSPOTS
-// --------------------------------------------------------------------
+// -- hotspots --
 
 func collectHotspots(matchCh <-chan Match) {
 	counts := make(map[string]int)
@@ -283,29 +257,23 @@ func collectHotspots(matchCh <-chan Match) {
 	for f, c := range counts {
 		spots = append(spots, hotspot{f, c})
 	}
-
-	sort.Slice(spots, func(i, j int) bool {
-		return spots[i].count > spots[j].count
-	})
+	sort.Slice(spots, func(i, j int) bool { return spots[i].count > spots[j].count })
 
 	fmt.Println()
 	fmt.Println(output.TitleColor.Sprint("Hotspots"))
 	fmt.Println(output.DimColor.Sprint("────────────────────"))
 	fmt.Println()
-
 	for _, s := range spots {
 		fmt.Printf("%-30s %d matches\n", output.FileColor.Sprint(s.file), s.count)
 	}
 	fmt.Println()
 }
 
-// --------------------------------------------------------------------
-// HELPERS
-// --------------------------------------------------------------------
+// -- helpers --
 
-// isLiteralPattern returns true when s contains no regex metacharacters.
-// When true, strings.Contains is used instead of the NFA engine — 5–10x faster
-// for the most common search case (plain words, identifiers, etc.).
+// isLiteralPattern returns true if the string has no regex special characters.
+// trick: regexp.QuoteMeta escapes everything, so if the result equals the input,
+// there was nothing to escape.
 func isLiteralPattern(s string) bool {
 	return regexp.QuoteMeta(s) == s
 }
