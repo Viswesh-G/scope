@@ -1,149 +1,82 @@
-
-
-# Next Major Milestone
-
-You now have a useful CLI.
-
-The next jump is:
-
-## Self-Profiling
-
-This is where Scope becomes unique.
+# Scope — What's left to build
 
 ---
 
-# 1. pprof Integration
+## What's already done
 
-Add:
+The CLI is fully working. Here's what exists right now:
 
-```bash
-scope search -p "github" --profile
-```
-
-or
-
-```bash
-scope profile search -p "github"
-```
-
-Generates:
-
-```bash
-.scope/
-    cpu.pprof
-    mem.pprof
-```
-
-Code:
-
-```go
-import "runtime/pprof"
-
-f, _ := os.Create("cpu.pprof")
-pprof.StartCPUProfile(f)
-
-defer func() {
-    pprof.StopCPUProfile()
-    f.Close()
-}()
-```
-
+- scope search   — concurrent regex search, worker stats, metrics table
+- scope search --profile   — CPU + memory pprof, written to .scope/
+- scope compare   — head-to-head benchmark vs ripgrep (mean, P50/P95/P99, Mann-Whitney U, sparkline)
+- scope audit   — chains stats + deps + dupes into one command
+- scope history   — full history (13 subcommands: stats, top, slowest, fastest, recent, pattern, path, replay, export, prune, clear)
+- scope config   — color customisation, saved to ~/.scope-config.yaml
+- scope ignore   — .scope-ignore management (init, add, remove, list)
+- scope stats / deps / dupes / graph   — codebase analysis tools
 
 ---
 
-# 7. HTML Report
+## What's left (in priority order)
 
-Now we're entering portfolio territory.
+### 1. HTML Report  ← do this next
 
 ```bash
-scope search -p github --html report.html
+scope search -p "github" --html report.html
 ```
 
-Output:
+Opens in a browser. Would show:
 
-```html
-Matches
-Metrics
-Worker Stats
-Load Balance
-Top Workers
-```
+- Matches
+- Metrics (files, bytes, duration)
+- Worker stats table
+- Load balance chart
+- Top hotspots
 
-Open in browser.
+This is the next big feature. Medium difficulty — mostly just writing the HTML template and wiring up a new flag.
 
 ---
 
-# 8. Live Dashboard
-
-After pprof.
+### 2. Live Dashboard
 
 ```bash
 scope serve
 ```
 
-Starts:
+Starts a local server at localhost:8080. Shows live data from .scope/history.json:
 
-```text
-localhost:8080
-```
+- search history
+- throughput over time
+- worker utilization
+- hotspots
+- extension stats
+- dependency stats
 
-Shows:
-
-* search history
-* throughput
-* worker utilization
-* hotspots
-* extension stats
-* dependency stats
-
-Grafana-like.
+Grafana-like, but built from scratch in Go. Hard — needs an HTTP server, JSON API, and a frontend (could be plain HTML+JS).
 
 ---
 
-# 9. Flamegraphs
-
-The feature that changes the project from "CLI utility" to "systems project".
-
-```bash
-scope search -p github --profile
-```
-
-Generates:
-
-```text
-cpu.svg
-memory.svg
-```
-
-Then:
+### 3. Flamegraph Viewer
 
 ```bash
 scope flame latest
 ```
 
-opens browser.
+Opens the most recent .scope/cpu.pprof in the browser as a flamegraph (calls go tool pprof -http internally). The main value here is the UX — no one wants to remember the pprof command.
 
-Shows:
+Could also auto-generate SVG flamegraphs:
 
-```text
-searchFile()
-    └── regexp.Match()
-          └── ReadFile()
 ```
-
-Now you're building observability tooling.
+.scope/cpu.svg
+.scope/mem.svg
+```
 
 ---
 
-# Priority Order
+## Priority
 
-Do these in order:
-
-```text
-5. pprof Integration       (medium)
-7. HTML Reports            (medium)
-8. Dashboard Server        (hard)
-9. Flamegraphs             (very hard)
 ```
-
-If your goal is a standout systems/concurrency/observability project, the biggest value now is **Benchmark → pprof → Flamegraphs**. Those are the features that transform Scope from a grep clone into a self-observing search engine.
+1. HTML Report      (medium)
+2. Live Dashboard   (hard)
+3. Flamegraph UX    (easy wrapper, hard from scratch)
+```

@@ -6,17 +6,18 @@
 // ones, filter by pattern, export to JSON, and more.
 //
 // Subcommands:
-//   scope history           — show all recent searches
-//   scope history stats     — aggregate stats (total, avg time, fastest, slowest)
-//   scope history top       — most frequently searched patterns
-//   scope history slowest   — top 10 slowest searches
-//   scope history fastest   — top 10 fastest searches
-//   scope history recent    — N most recent searches
-//   scope history pattern   — filter history by pattern text
-//   scope history path      — filter history by search path
-//   scope history export    — export history to a JSON file
-//   scope history prune     — keep only the newest N records
-//   scope history clear     — delete all history
+//
+//	scope history           — show all recent searches
+//	scope history stats     — aggregate stats (total, avg time, fastest, slowest)
+//	scope history top       — most frequently searched patterns
+//	scope history slowest   — top 10 slowest searches
+//	scope history fastest   — top 10 fastest searches
+//	scope history recent    — N most recent searches
+//	scope history pattern   — filter history by pattern text
+//	scope history path      — filter history by search path
+//	scope history export    — export history to a JSON file
+//	scope history prune     — keep only the newest N records
+//	scope history clear     — delete all history
 package cmd
 
 import (
@@ -31,6 +32,7 @@ import (
 var (
 	recentLimit int    // --limit : how many recent entries to show
 	exportFile  string // -o / --output : file to write exported history to
+	replayIndex int    // --nth : which entry to replay (1 = most recent)
 )
 
 // historyCmd is the parent `scope history` command.
@@ -148,6 +150,24 @@ var historyClearCmd = &cobra.Command{
 	},
 }
 
+// historyReplayCmd re-runs the most recent (or Nth) search from history.
+// Useful for quickly repeating a past search without retyping the pattern.
+var historyReplayCmd = &cobra.Command{
+	Use:   "replay",
+	Short: "Re-run the most recent (or Nth most recent) search",
+	Long: `Re-runs a past search from your history.
+
+By default replays the most recent search. Use --nth to pick an older one.
+The replayed search IS saved to history again (as a new entry).
+
+Examples:
+  scope history replay          # re-run the last search
+  scope history replay --nth 3  # re-run the 3rd most recent search`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return analysis.Replay(replayIndex)
+	},
+}
+
 // init wires all history subcommands into the command tree and defines flags.
 func init() {
 	rootCmd.AddCommand(historyCmd)
@@ -162,6 +182,7 @@ func init() {
 	historyCmd.AddCommand(historyExportCmd)
 	historyCmd.AddCommand(historyPruneCmd)
 	historyCmd.AddCommand(historyClearCmd)
+	historyCmd.AddCommand(historyReplayCmd)
 
 	// --limit flag for `scope history recent`
 	historyRecentCmd.Flags().IntVarP(
@@ -173,5 +194,11 @@ func init() {
 	historyExportCmd.Flags().StringVarP(
 		&exportFile, "output", "o", "history_export.json",
 		"output JSON file path",
+	)
+
+	// --nth flag for `scope history replay`
+	historyReplayCmd.Flags().IntVar(
+		&replayIndex, "nth", 1,
+		"which past search to replay (1 = most recent)",
 	)
 }

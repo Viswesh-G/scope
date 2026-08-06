@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -324,3 +325,48 @@ func Clear() error {
 	output.PrintSuccess("History cleared.")
 	return nil
 }
+
+// Replay re-runs a past search by picking the Nth most recent record and
+// re-executing scope search with the same flags. nth=1 means most recent.
+// We re-exec the current binary so the output looks exactly like a normal search.
+func Replay(nth int) error {
+	records, err := Load()
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		output.PrintWarning("No history to replay.")
+		return nil
+	}
+
+	// nth is 1-indexed from the end (1 = newest)
+	if nth < 1 || nth > len(records) {
+		return fmt.Errorf("--nth %d out of range (history has %d entries)", nth, len(records))
+	}
+	r := records[len(records)-nth]
+
+	output.PrintHeader("Replaying search", "")
+	output.PrintKeyValue("Pattern", r.Pattern)
+	output.PrintKeyValue("Path", r.Path)
+	output.PrintKeyValue("Workers", fmt.Sprintf("%d", r.Workers))
+	fmt.Println()
+
+	// re-exec the scope binary with the same args
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("couldn't find scope binary: %w", err)
+	}
+
+	args := []string{
+		"search",
+		"-p", r.Pattern,
+		"--path", r.Path,
+		"-w", fmt.Sprintf("%d", r.Workers),
+	}
+
+	cmd := exec.Command(self, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+

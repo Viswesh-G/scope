@@ -2,8 +2,10 @@
 // the commands are thin - they just parse flags and call into internal/.
 //
 // using cobra for the CLI framework. the pattern is:
-//   var someCmd = &cobra.Command{ ... }
-//   func init() { rootCmd.AddCommand(someCmd) }
+//
+//	var someCmd = &cobra.Command{ ... }
+//	func init() { rootCmd.AddCommand(someCmd) }
+//
 // cobra wires everything together automatically.
 package cmd
 

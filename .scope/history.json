@@ -54,5 +54,45 @@
     "workers": 10,
     "matches": 120,
     "duration_ms": 42.463300000000004
+  },
+  {
+    "timestamp": "2026-08-06T15:41:07+05:30",
+    "pattern": "func",
+    "path": ".",
+    "workers": 16,
+    "matches": 148,
+    "duration_ms": 43.9182
+  },
+  {
+    "timestamp": "2026-08-06T15:45:53+05:30",
+    "pattern": "func",
+    "path": ".",
+    "workers": 16,
+    "matches": 149,
+    "duration_ms": 27.919900000000002
+  },
+  {
+    "timestamp": "2026-08-06T15:54:09+05:30",
+    "pattern": "func",
+    "path": ".",
+    "workers": 16,
+    "matches": 155,
+    "duration_ms": 36.6506
+  },
+  {
+    "timestamp": "2026-08-06T15:54:11+05:30",
+    "pattern": "TODO",
+    "path": ".",
+    "workers": 16,
+    "matches": 8,
+    "duration_ms": 6.2541
+  },
+  {
+    "timestamp": "2026-08-06T15:58:56+05:30",
+    "pattern": "func",
+    "path": ".",
+    "workers": 16,
+    "matches": 161,
+    "duration_ms": 27.0467
   }
 ]

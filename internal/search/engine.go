@@ -5,6 +5,7 @@ package search
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,9 +19,21 @@ import (
 	"github.com/Viswesh-G/scope/internal/ignore"
 	"github.com/Viswesh-G/scope/internal/metrics"
 	"github.com/Viswesh-G/scope/internal/output"
+	"github.com/Viswesh-G/scope/internal/profiler"
 )
 
 func Run(cfg Config) error {
+	// if --profile was passed, start collecting CPU samples right away.
+	// the deferred Stop() will flush both cpu.pprof and mem.pprof when Run() returns.
+	if cfg.Profile {
+		session, err := profiler.Start(".scope")
+		if err != nil {
+			return fmt.Errorf("profiler: %w", err)
+		}
+		defer session.Stop()
+		defer profiler.PrintSummary(".scope")
+	}
+
 	registry := metrics.NewRegistry(cfg.Workers)
 	totalStart := time.Now()
 
@@ -70,24 +83,62 @@ func Run(cfg Config) error {
 		close(matchCh)
 	}()
 
-	// stage 3: drain matchCh - either print each match or build a hotspot ranking
+	// stage 3: drain matchCh - collect or print each match
+	//
+	// where to write: stdout by default, or a file if --output was given
+	var matchWriter io.Writer = os.Stdout
+	var outFile *os.File
+	if cfg.OutputFile != "" {
+		f, err := os.Create(cfg.OutputFile)
+		if err != nil {
+			return fmt.Errorf("opening output file: %w", err)
+		}
+		defer f.Close()
+		matchWriter = f
+		outFile = f
+	}
+	_ = outFile // used indirectly through matchWriter
+
 	if cfg.Hotspots {
 		collectHotspots(matchCh)
+	} else if cfg.Count {
+		// --count: just drain the channel silently, then print the total
+		for range matchCh {
+		}
+		// the atomic counter in registry already tracked the total
 	} else {
+		collected := 0
 		for m := range matchCh {
 			highlighted := re.ReplaceAllStringFunc(m.Line, func(match string) string {
 				return output.MatchColor.Sprint(match)
 			})
-			fmt.Printf("%s:%s %s\n",
+			fmt.Fprintf(matchWriter, "%s:%s %s\n",
 				output.FileColor.Sprint(m.File),
 				output.SuccessColor.Sprint(m.LineNum),
 				highlighted,
 			)
+			collected++
+			// --max-results: stop printing after N matches but let workers finish
+			if cfg.MaxResults > 0 && collected >= cfg.MaxResults {
+				// drain the rest silently so the pipeline shuts down cleanly
+				go func() {
+					for range matchCh {
+					}
+				}()
+				break
+			}
 		}
 	}
 
 	registry.TotalDuration = time.Since(totalStart)
-	output.ConsoleRenderer{}.Render(metrics.BuildReport(registry))
+
+	// --count: print just the number, no big table
+	if cfg.Count {
+		fmt.Printf("%d matches\n", registry.MatchesFound)
+	} else if !cfg.Quiet {
+		// normal mode: print the full metrics table
+		output.ConsoleRenderer{}.Render(metrics.BuildReport(registry))
+	}
 
 	if !cfg.SkipHistory {
 		analysis.Save(analysis.SearchRecord{

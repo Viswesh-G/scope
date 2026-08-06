@@ -5,8 +5,9 @@
 // and whether the work was evenly distributed.
 //
 // the whole project lives in two places:
-//   cmd/      - CLI layer (thin wrappers around the real logic)
-//   internal/ - where everything actually happens
+//
+//	cmd/      - CLI layer (thin wrappers around the real logic)
+//	internal/ - where everything actually happens
 package main
 
 import "github.com/Viswesh-G/scope/cmd"

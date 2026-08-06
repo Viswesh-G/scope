@@ -1,268 +1,371 @@
-# Scope CLI Commands Guide
+# Scope CLI — Commands Reference
 
-This document provides a comprehensive list of all commands available in the `scope` CLI, along with their usage and examples.
+> **Legend:** flags marked `(req)` are required. All others are optional with the shown default.
 
-## Basic Search
+---
+
+## Search
 
 ### `scope search`
-Searches files for a regex pattern within a specified directory.
+Search files for a regex pattern. The core command.
 
 **Flags:**
-* `-p, --pattern`: The regular expression pattern to search for (Required)
-* `--path`: The path to search in (Default: `.`)
-* `-r, --recursive`: Search directories recursively (Default: `true`)
-* `-i, --ignore-case`: Perform a case-insensitive search (Default: `false`)
-* `-w, --workers`: Number of concurrent workers to use (Default: Number of CPU cores)
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--pattern` | `-p` | *(req)* | Regex pattern to search for |
+| `--path` | | `.` | Directory to search in |
+| `--recursive` | `-r` | `true` | Search subdirectories |
+| `--ignore-case` | `-i` | `false` | Case-insensitive search |
+| `--workers` | `-w` | #CPUs | Number of parallel goroutines |
+| `--fname` | `-f` | `false` | Match filenames instead of file contents |
+| `--hotspots` | | `false` | Rank files by match count (no per-line output) |
+| `--count` | | `false` | Print only the total match count |
+| `--quiet` | `-q` | `false` | Suppress the metrics table (just show matches) |
+| `--max-results` | `-m` | `0` (unlimited) | Stop showing matches after N results |
+| `--output` | `-o` | *(stdout)* | Write matches to a file instead of stdout |
+| `--profile` | | `false` | Write CPU + memory profiles to `.scope/` |
 
 **Examples:**
 ```bash
-# Basic search in the current directory
-scope search --pattern "TODO"
+# Basic search
+scope search -p "TODO"
 
-# Case-insensitive search recursively in a specific path
-scope search -p "func main" --path ./cmd -r -i
+# Case-insensitive in a specific directory
+scope search -p "func main" --path ./cmd -i
 
-# Run a search with a specific number of workers
-scope search -p "fmt.Println" -w 4
-
-# Search only in filenames instead of contents
-scope search -p "engine" --fname
-
-# Find files with the most matches for a pattern
+# Find which files have the most matches
 scope search -p "github" --hotspots
+
+# Just print the count, nothing else
+scope search -p "TODO" --count
+
+# Stop after the first 10 matches
+scope search -p "error" -m 10
+
+# Save matches to a file, skip the metrics table
+scope search -p "TODO" -o matches.txt -q
+
+# Combine: search + profile + save output
+scope search -p "func" --profile -o func_matches.txt -q
+
+# Filename search (find files named like the pattern)
+scope search -p "engine" -f
 ```
+
+---
+
+## Profiling
+
+### `scope search --profile`
+Wraps a search run with Go's built-in `runtime/pprof`. Generates two files in `.scope/`:
+
+| File | Contains |
+|---|---|
+| `.scope/cpu.pprof` | Where CPU time was spent (stack samples every 10ms) |
+| `.scope/mem.pprof` | Heap allocations at the end of the search |
+
+```bash
+scope search -p "func" --profile
+
+# Then inspect:
+go tool pprof .scope/cpu.pprof             # interactive CLI
+go tool pprof -http=:8080 .scope/cpu.pprof # browser flamegraph
+go tool pprof .scope/mem.pprof             # heap allocations
+```
+
+> **Tip:** the browser flamegraph (`-http=:8080`) is the most useful — it shows you exactly which functions ate the most CPU time and lets you click around.
 
 ---
 
 ## Benchmarking
 
 ### `scope compare`
-Benchmarks `scope` against `ripgrep` for a specific search pattern and path. It runs both tools multiple times to compute an average duration and determine a winner.
+Benchmark scope vs ripgrep head-to-head. Alternates which tool goes first each round to cancel out OS cache effects.
 
 **Flags:**
-* `-p, --pattern`: The regular expression pattern to search for (Required)
-* `--path`: The path to search in (Default: `.`)
-* `--runs`: Number of benchmark iterations to run for an accurate average (Default: `20`)
+| Flag | Default | Description |
+|---|---|---|
+| `--pattern` / `-p` | *(req)* | Pattern to search for |
+| `--path` | `.` | Directory to search |
+| `--runs` | `20` | Number of timed rounds |
+| `--warmup` | `3` | Throwaway warmup rounds (not counted) |
 
-**Examples:**
 ```bash
-# Compare scope and ripgrep using 20 runs
 scope compare -p "github" --runs 20
+scope compare -p "TODO" --path ./internal --runs 50 --warmup 5
+```
+
+**Output includes:** mean, trimmed mean (10%), P50/P95/P99, standard deviation, throughput (MB/s), a sparkline run-by-run chart, and a Mann-Whitney U significance test.
+
+> Requires `rg` (ripgrep) on your PATH.
+
+---
+
+## Codebase Audit
+
+### `scope audit` *(chains stats + deps + dupes)*
+Run a full codebase health check in one command. Saves running three commands separately.
+
+**Flags:**
+| Flag | Default | Description |
+|---|---|---|
+| `--path` | `.` | Directory to audit |
+| `--skip-dupes` | `false` | Skip the (slower) duplicate file scan |
+
+```bash
+scope audit
+scope audit --path ./internal
+scope audit --skip-dupes     # faster, skips SHA256 dedup scan
+```
+
+**Output includes:**
+- File extension breakdown (how many `.go`, `.md`, etc.)
+- Go import counts (which packages you depend on most)
+- Duplicate files by SHA256 content hash
+
+---
+
+## Codebase Analysis (individual commands)
+
+### `scope stats`
+File extension breakdown — how many files of each type exist.
+
+```bash
+scope stats
+scope stats --path ./src
+```
+
+### `scope deps`
+Go import counts — which packages appear across the codebase most often.
+
+```bash
+scope deps
+scope deps --path ./internal
+```
+
+### `scope dupes`
+Find files with identical contents (SHA256 hash comparison).
+
+**Flags:** `--path` (`.`), `--workers`/`-w` (#CPUs)
+
+```bash
+scope dupes
+scope dupes --path ./assets -w 4
+```
+
+### `scope graph`
+Print the directory tree. Optionally export as Graphviz DOT.
+
+**Flags:** `--path` (`.`), `--dot` (false)
+
+```bash
+scope graph
+scope graph --path ./internal
+scope graph --dot > graph.dot
+dot -Tsvg graph.dot > graph.svg   # render with graphviz
 ```
 
 ---
 
-## Configuration & Personalization
+## Search History
 
-### `scope config set-color`
-Personalizes the CLI aesthetic by allowing you to change the color of different output elements.
+Every `scope search` is recorded to `.scope/history.json` (capped at 1000 entries).
+
+### `scope history`
+Show all recorded searches in a table (timestamp, pattern, matches, workers, duration).
+
+```bash
+scope history
+```
+
+### `scope history stats`
+Aggregated metrics: total searches, unique patterns, total matches, avg/fastest/slowest duration.
+
+```bash
+scope history stats
+```
+
+### `scope history top`
+Most frequently searched patterns, ranked by count.
+
+```bash
+scope history top
+```
+
+### `scope history slowest`
+Top 10 slowest searches you've run.
+
+```bash
+scope history slowest
+```
+
+### `scope history fastest`
+Top 10 fastest searches you've run.
+
+```bash
+scope history fastest
+```
+
+### `scope history recent`
+Most recent N searches (default: 10).
+
+**Flags:** `--limit`/`-n` (default `10`)
+
+```bash
+scope history recent
+scope history recent --limit 25
+```
+
+### `scope history pattern <text>`
+Filter history to entries whose pattern contains `<text>`.
+
+```bash
+scope history pattern "TODO"
+scope history pattern "func"
+```
+
+### `scope history path <path>`
+Filter history to entries that searched in a specific path.
+
+```bash
+scope history path "./cmd"
+scope history path "./internal"
+```
+
+### `scope history replay`
+Re-run the most recent (or Nth most recent) search from history.
+Great for quickly repeating a past search without retyping.
+
+**Flags:** `--nth` (default `1` = most recent)
+
+```bash
+scope history replay          # repeat the last search
+scope history replay --nth 3  # repeat the 3rd most recent
+```
+
+> The replayed search is saved to history as a new entry.
+
+### `scope history export`
+Export all history to a JSON file.
+
+**Flags:** `--output`/`-o` (default `history_export.json`)
+
+```bash
+scope history export
+scope history export -o my_backup.json
+```
+
+### `scope history prune <N>`
+Keep only the newest N records (trim the rest).
+
+```bash
+scope history prune 50
+```
+
+### `scope history clear`
+Delete all search history.
+
+```bash
+scope history clear
+```
+
+---
+
+## Configuration
+
+Settings saved to `~/.scope-config.yaml` via Viper. Persist across all sessions.
+
+### `scope config set-color <element> <color>`
+Change the color of any output element.
 
 **Elements:** `title`, `section`, `success`, `warning`, `error`, `dim`, `file`, `match`, `time`
-**Colors:** `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `faint`, `bold`, and high-intensity variants like `hired`, `higreen`, `hicyan`, etc.
+**Colors:** `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `faint`, `bold`, `hired`, `higreen`, `hiyellow`, `hiblue`, `himagenta`, `hicyan`, `hiwhite`
 
-**Examples:**
 ```bash
-# Change the title color to high-intensity cyan
-scope config set-color title hicyan
-
-# Change the match highlight color to red
 scope config set-color match red
+scope config set-color title hicyan
+scope config set-color file hiblue
 ```
 
 ### `scope config list`
-Displays a list of all output elements that can be styled, their current configured color, and a list of all valid color names you can choose from. The output text is rendered in the actual colors to serve as a preview!
+Show all elements, their current color, and a live color preview.
 
-**Examples:**
 ```bash
 scope config list
 ```
 
 ### `scope config reset`
-Resets all personalized aesthetics and colors back to their original defaults.
+Reset all colors back to defaults.
 
-**Examples:**
 ```bash
 scope config reset
 ```
 
 ---
 
-## Ignore File Management
+## Ignore Rules
+
+`.scope-ignore` works like `.gitignore` — one pattern per line, `#` for comments, wildcards supported.
 
 ### `scope ignore init`
-Initializes a new `.scope-ignore` file in the current directory with standard default ignore patterns (like `.git`, `node_modules`, `vendor`).
+Create a `.scope-ignore` file with default patterns (`.git`, `node_modules`, `vendor`, `build`, `dist`).
 
-**Examples:**
 ```bash
 scope ignore init
 ```
 
-### `scope ignore add`
-Adds a new pattern or path to the current directory's `.scope-ignore` file.
+### `scope ignore add <pattern>`
+Add a pattern to `.scope-ignore`. Supports globs.
 
-**Examples:**
 ```bash
-# Ignore all .log files
 scope ignore add "*.log"
-
-# Ignore a specific directory
-scope ignore add "build/"
+scope ignore add "tmp/"
+scope ignore add "**/*_test.go"
 ```
 
-### `scope ignore remove`
-Removes a specific pattern from the current directory's `.scope-ignore` file.
+### `scope ignore remove <pattern>`
+Remove a pattern from `.scope-ignore`.
 
-**Examples:**
 ```bash
 scope ignore remove "*.log"
 ```
 
 ### `scope ignore list`
-Lists all patterns currently defined in the local `.scope-ignore` file.
+Show all patterns in the local `.scope-ignore`.
 
-**Examples:**
 ```bash
 scope ignore list
 ```
 
 ---
 
-## Codebase Analysis
+## Chaining Examples
 
-### `scope dupes`
-Find duplicate files by hashing their contents (SHA256).
+Scope's flags are designed so common workflows collapse into single commands:
 
-**Examples:**
 ```bash
-# Find duplicates in the current directory
-scope dupes
-```
+# Profile a search and save matches to file (no terminal clutter)
+scope search -p "func" --profile -o funcs.txt -q
 
-### `scope deps`
-Analyze and count Go dependencies across the repository based on import statements.
+# Quick audit before committing
+scope audit --skip-dupes
 
-**Examples:**
-```bash
-scope deps
-```
+# Replay your last search to check results haven't changed
+scope history replay
 
-### `scope graph`
-Build and display a visual directory tree graph of the repository, respecting ignore rules.
+# Find where TODO comments are most concentrated
+scope search -p "TODO" --hotspots
 
-**Flags:**
-* `--dot`: Export to Graphviz DOT format
+# Export history after a long dev session
+scope history export -o session_backup.json
 
-**Examples:**
-```bash
-# Display directory tree
-scope graph
+# Count matches in a subdirectory only
+scope search -p "error" --path ./internal --count
 
-# Export to DOT format
-scope graph --dot > graph.dot
-```
+# Benchmark after a performance change
+scope compare -p "func" --runs 30 --warmup 5
 
-### `scope stats`
-Show statistics for file extensions across the repository.
-
-**Examples:**
-```bash
-scope stats
-```
-
----
-
-## Search History & Observability
-
-### `scope history`
-Displays a chronological list of recent searches executed, including the pattern, matches found, worker count, and total execution time.
-
-**Examples:**
-```bash
-scope history
-```
-
-### `scope history stats`
-Displays aggregated metrics over your search history, such as total searches, unique patterns, and average/fastest/slowest search times.
-
-**Examples:**
-```bash
-scope history stats
-```
-
-### `scope history top`
-Lists the most frequently searched patterns ranked by occurrence count.
-
-**Examples:**
-```bash
-scope history top
-```
-
-### `scope history slowest`
-Displays the top 10 slowest search queries you have run.
-
-**Examples:**
-```bash
-scope history slowest
-```
-
-### `scope history fastest`
-Displays the top 10 fastest search queries you have run.
-
-**Examples:**
-```bash
-scope history fastest
-```
-
-### `scope history recent`
-Lists a specific number of your most recent searches.
-
-**Flags:**
-* `--limit`: Number of recent searches to display (Default: `10`)
-
-**Examples:**
-```bash
-scope history recent --limit 5
-```
-
-### `scope history pattern`
-Filters and lists historical searches by a specific pattern string.
-
-**Examples:**
-```bash
-scope history pattern "TODO"
-```
-
-### `scope history path`
-Filters and lists historical searches by a specific target path.
-
-**Examples:**
-```bash
-scope history path "./cmd"
-```
-
-### `scope history export`
-Exports your entire search history to a JSON file.
-
-**Flags:**
-* `-o, --output`: Destination file path for the export (Required)
-
-**Examples:**
-```bash
-scope history export -o /tmp/hist_test1.json
-```
-
-### `scope history prune`
-Prunes the search history to keep only the most recent N records.
-
-**Examples:**
-```bash
-scope history prune 50
-```
-
-### `scope history clear`
-Deletes all recorded search history.
-
-**Examples:**
-```bash
-scope history clear
+# Open a flamegraph after profiling (requires Go toolchain)
+scope search -p "github" --profile
+go tool pprof -http=:8080 .scope/cpu.pprof
 ```
