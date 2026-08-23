@@ -99,6 +99,8 @@ func Run(cfg Config) error {
 	}
 	_ = outFile // used indirectly through matchWriter
 
+	var allMatches []output.HTMLMatch
+
 	if cfg.Hotspots {
 		collectHotspots(matchCh)
 	} else if cfg.Count {
@@ -109,6 +111,14 @@ func Run(cfg Config) error {
 	} else {
 		collected := 0
 		for m := range matchCh {
+			if cfg.HTMLFile != "" {
+				allMatches = append(allMatches, output.HTMLMatch{
+					File:    m.File,
+					LineNum: m.LineNum,
+					Line:    m.Line,
+				}) // save for the HTML report
+			}
+
 			highlighted := re.ReplaceAllStringFunc(m.Line, func(match string) string {
 				return output.MatchColor.Sprint(match)
 			})
@@ -120,7 +130,8 @@ func Run(cfg Config) error {
 			collected++
 			// --max-results: stop printing after N matches but let workers finish
 			if cfg.MaxResults > 0 && collected >= cfg.MaxResults {
-				// drain the rest silently so the pipeline shuts down cleanly
+				// drain the rest silently so the pipeline can shut down cleanly
+				// (the workers are still running and need matchCh to be consumed)
 				go func() {
 					for range matchCh {
 					}
@@ -138,6 +149,17 @@ func Run(cfg Config) error {
 	} else if !cfg.Quiet {
 		// normal mode: print the full metrics table
 		output.ConsoleRenderer{}.Render(metrics.BuildReport(registry))
+	}
+
+	if cfg.HTMLFile != "" {
+		report := metrics.BuildReport(registry)
+		err := output.WriteHTMLReport(cfg.HTMLFile, report, allMatches)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to write HTML report: %v\n", err)
+		} else {
+			fmt.Println()
+			output.SuccessColor.Printf("✨ HTML report saved to %s\n", cfg.HTMLFile)
+		}
 	}
 
 	if !cfg.SkipHistory {

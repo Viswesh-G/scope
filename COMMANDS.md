@@ -23,6 +23,7 @@ Search files for a regex pattern. The core command.
 | `--quiet` | `-q` | `false` | Suppress the metrics table (just show matches) |
 | `--max-results` | `-m` | `0` (unlimited) | Stop showing matches after N results |
 | `--output` | `-o` | *(stdout)* | Write matches to a file instead of stdout |
+| `--html` | | `""` | Write a beautiful standalone HTML report |
 | `--profile` | | `false` | Write CPU + memory profiles to `.scope/` |
 
 **Examples:**
@@ -48,6 +49,9 @@ scope search -p "TODO" -o matches.txt -q
 # Combine: search + profile + save output
 scope search -p "func" --profile -o func_matches.txt -q
 
+# Generate a beautiful HTML report with visual charts
+scope search -p "github" --html report.html
+
 # Filename search (find files named like the pattern)
 scope search -p "engine" -f
 ```
@@ -63,6 +67,9 @@ Wraps a search run with Go's built-in `runtime/pprof`. Generates two files in `.
 |---|---|
 | `.scope/cpu.pprof` | Where CPU time was spent (stack samples every 10ms) |
 | `.scope/mem.pprof` | Heap allocations at the end of the search |
+| `.scope/cpu.svg` | Scalable Vector Graphic flamegraph for CPU |
+| `.scope/mem.svg` | Scalable Vector Graphic flamegraph for Memory |
+| `.scope/flamegraphs.md` | Embedded SVG flamegraphs for easy viewing |
 
 ```bash
 scope search -p "func" --profile
@@ -367,5 +374,7 @@ scope compare -p "func" --runs 30 --warmup 5
 
 # Open a flamegraph after profiling (requires Go toolchain)
 scope search -p "github" --profile
+# You can now easily view .scope/flamegraphs.md directly in your IDE!
+# Or continue using pprof:
 go tool pprof -http=:8080 .scope/cpu.pprof
 ```

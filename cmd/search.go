@@ -23,6 +23,7 @@ var (
 	flagCount        bool   // --count: print only the total match count
 	flagMaxResults   int    // --max-results: stop after N matches
 	flagOutputFile   string // --output: write matches to a file instead of stdout
+	flagHTMLFile     string // --html: write a beautiful HTML report to this file
 )
 
 var searchCmd = &cobra.Command{
@@ -60,6 +61,7 @@ func init() {
 	f.BoolVar(&flagCount, "count", false, "print only the total match count, not each line")
 	f.IntVarP(&flagMaxResults, "max-results", "m", 0, "stop after this many matches (0 = unlimited)")
 	f.StringVarP(&flagOutputFile, "output", "o", "", "write matches to a file instead of stdout")
+	f.StringVar(&flagHTMLFile, "html", "", "write a beautiful HTML report to this file")
 
 	// profile flag - writes .scope/cpu.pprof and .scope/mem.pprof
 	f.BoolVar(&flagProfile, "profile", false, "write CPU + memory profiles to .scope/")
@@ -86,6 +88,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		Count:        flagCount,
 		MaxResults:   flagMaxResults,
 		OutputFile:   flagOutputFile,
+		HTMLFile:     flagHTMLFile,
 	}
 	return search.Run(cfg)
 }

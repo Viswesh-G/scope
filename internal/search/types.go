@@ -41,4 +41,5 @@ type Config struct {
 	Count        bool   // --count: print only the total match count, not every line
 	MaxResults   int    // --max-results: stop after this many matches (0 = no limit)
 	OutputFile   string // --output: write matches to this file instead of stdout
+	HTMLFile     string // --html: write an HTML report to this file
 }
