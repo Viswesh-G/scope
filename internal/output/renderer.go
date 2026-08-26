@@ -1,10 +1,11 @@
 // Package output handles everything printed to the terminal.
 //
 // Four files:
-//   renderer.go   - the Renderer interface
-//   base_color.go - global color vars, InitColors(), MapColor()
-//   ui.go         - reusable helpers (headers, tables, errors, etc.)
-//   console.go    - ConsoleRenderer: prints the post-search metrics report
+//
+//	renderer.go   - the Renderer interface
+//	base_color.go - global color vars, InitColors(), MapColor()
+//	ui.go         - reusable helpers (headers, tables, errors, etc.)
+//	console.go    - ConsoleRenderer: prints the post-search metrics report
 package output
 
 import "github.com/Viswesh-G/scope/internal/metrics"

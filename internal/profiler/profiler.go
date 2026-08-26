@@ -3,11 +3,12 @@
 // When the search finishes, we write both .pprof files and try to generate SVGs.
 //
 // Output files land in .scope/ so they stay out of the way:
-//   .scope/cpu.pprof  ← raw CPU profile
-//   .scope/mem.pprof  ← raw memory profile
-//   .scope/cpu.svg    ← flamegraph SVG (only if Graphviz is installed)
-//   .scope/mem.svg    ← memory graph SVG (only if Graphviz is installed)
-//   .scope/flamegraphs.md ← markdown viewer (embeds SVGs, with fallback text)
+//
+//	.scope/cpu.pprof  ← raw CPU profile
+//	.scope/mem.pprof  ← raw memory profile
+//	.scope/cpu.svg    ← flamegraph SVG (only if Graphviz is installed)
+//	.scope/mem.svg    ← memory graph SVG (only if Graphviz is installed)
+//	.scope/flamegraphs.md ← markdown viewer (embeds SVGs, with fallback text)
 package profiler
 
 import (
@@ -91,7 +92,7 @@ func generateSVG(goExe, outputSvg, inputPprof string) bool {
 	}
 
 	cmd := exec.Command(goExe, "tool", "pprof", "-svg", "-output", outputSvg, inputPprof)
-	
+
 	// Winget often installs Graphviz but forgets to add it to the Windows PATH.
 	// To make this "just work" for the user, we'll manually inject common Graphviz locations!
 	if runtime.GOOS == "windows" {

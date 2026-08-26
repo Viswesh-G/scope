@@ -35,7 +35,7 @@ type WorkerReport struct {
 	MatchesFound int64
 	BytesScanned int64
 	WorkDuration time.Duration
-	Throughput   float64  // bytes/second, 0 if WorkDuration == 0
+	Throughput   float64 // bytes/second, 0 if WorkDuration == 0
 	Files        []string
 }
 
@@ -112,11 +112,19 @@ func computeBalance(workers []WorkerReport) LoadBalance {
 	)
 
 	for _, w := range workers {
-		if w.FilesScanned > maxFiles { maxFiles = w.FilesScanned }
-		if w.FilesScanned < minFiles { minFiles = w.FilesScanned }
+		if w.FilesScanned > maxFiles {
+			maxFiles = w.FilesScanned
+		}
+		if w.FilesScanned < minFiles {
+			minFiles = w.FilesScanned
+		}
 		sumFiles += w.FilesScanned
-		if w.BytesScanned > maxBytes { maxBytes = w.BytesScanned }
-		if w.BytesScanned < minBytes { minBytes = w.BytesScanned }
+		if w.BytesScanned > maxBytes {
+			maxBytes = w.BytesScanned
+		}
+		if w.BytesScanned < minBytes {
+			minBytes = w.BytesScanned
+		}
 		sumBytes += w.BytesScanned
 	}
 

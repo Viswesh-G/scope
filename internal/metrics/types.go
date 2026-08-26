@@ -1,8 +1,9 @@
 // Package metrics tracks performance data during a search.
 //
 // Two-layer design:
-//   Registry  - live counters, updated atomically during the search
-//   Report    - clean snapshot built after the search, used for display
+//
+//	Registry  - live counters, updated atomically during the search
+//	Report    - clean snapshot built after the search, used for display
 //
 // Using atomics (not mutexes) because each counter is just a single int64
 // that multiple goroutines increment independently. No coordination needed.
@@ -22,7 +23,7 @@ type Registry struct {
 	MatchesFound int64
 
 	WalkDuration  time.Duration
-	SearchTimeNs  int64         // sum of workers' scan time in nanoseconds (stored as int64 for atomic ops)
+	SearchTimeNs  int64 // sum of workers' scan time in nanoseconds (stored as int64 for atomic ops)
 	TotalDuration time.Duration
 
 	Workers []*WorkerStats

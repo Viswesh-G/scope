@@ -33,7 +33,9 @@ func PrintKeyValue(key, value string) {
 func PrintSuccess(msg string) { SuccessColor.Println("✓ " + msg) }
 func PrintWarning(msg string) { WarningColor.Println("⚠ " + msg) }
 func PrintError(err error)    { ErrorColor.Println("✗ Error: " + err.Error()) }
-func PrintDivider()           { DimColor.Println("────────────────────────────────────────────────────────────────────") }
+func PrintDivider() {
+	DimColor.Println("────────────────────────────────────────────────────────────────────")
+}
 
 // PrintTable prints a table with auto-sized columns and optional alignment.
 // alignments can be "left", "right", or "center" per column (defaults to "left").

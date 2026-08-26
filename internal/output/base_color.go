@@ -58,24 +58,43 @@ func getColor(element string, defaultAttrs ...color.Attribute) *color.Color {
 // color.Attribute. Returns 0 if the name isn't recognised.
 func MapColor(name string) color.Attribute {
 	switch name {
-	case "black":    return color.FgBlack
-	case "red":      return color.FgRed
-	case "green":    return color.FgGreen
-	case "yellow":   return color.FgYellow
-	case "blue":     return color.FgBlue
-	case "magenta":  return color.FgMagenta
-	case "cyan":     return color.FgCyan
-	case "white":    return color.FgWhite
-	case "hiblack":  return color.FgHiBlack
-	case "hired":    return color.FgHiRed
-	case "higreen":  return color.FgHiGreen
-	case "hiyellow": return color.FgHiYellow
-	case "hiblue":   return color.FgHiBlue
-	case "himagenta":return color.FgHiMagenta
-	case "hicyan":   return color.FgHiCyan
-	case "hiwhite":  return color.FgHiWhite
-	case "faint":    return color.Faint
-	case "bold":     return color.Bold
-	default:         return 0
+	case "black":
+		return color.FgBlack
+	case "red":
+		return color.FgRed
+	case "green":
+		return color.FgGreen
+	case "yellow":
+		return color.FgYellow
+	case "blue":
+		return color.FgBlue
+	case "magenta":
+		return color.FgMagenta
+	case "cyan":
+		return color.FgCyan
+	case "white":
+		return color.FgWhite
+	case "hiblack":
+		return color.FgHiBlack
+	case "hired":
+		return color.FgHiRed
+	case "higreen":
+		return color.FgHiGreen
+	case "hiyellow":
+		return color.FgHiYellow
+	case "hiblue":
+		return color.FgHiBlue
+	case "himagenta":
+		return color.FgHiMagenta
+	case "hicyan":
+		return color.FgHiCyan
+	case "hiwhite":
+		return color.FgHiWhite
+	case "faint":
+		return color.Faint
+	case "bold":
+		return color.Bold
+	default:
+		return 0
 	}
 }

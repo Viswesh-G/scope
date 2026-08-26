@@ -28,7 +28,7 @@ func StartServer(port int) error {
 	mux.HandleFunc("/api/search", handleSearchAPI)
 
 	addr := fmt.Sprintf(":%d", port)
-	
+
 	fmt.Println()
 	output.TitleColor.Println("Scope Live Dashboard")
 	output.DimColor.Println("────────────────────")
@@ -67,7 +67,7 @@ func handleHistoryAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// We use an encoder to efficiently write the JSON directly to the response
 	json.NewEncoder(w).Encode(records)
 }
@@ -107,17 +107,17 @@ func handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Prepare the arguments
 	args := []string{"search", "-p", req.Pattern}
-	
+
 	if req.Path != "" {
 		args = append(args, "--path", req.Path)
 	} else {
 		args = append(args, "--path", ".")
 	}
-	
+
 	if req.IgnoreCase {
 		args = append(args, "-i")
 	}
-	
+
 	if req.Workers > 0 {
 		args = append(args, "-w", fmt.Sprintf("%d", req.Workers))
 	}
@@ -125,7 +125,7 @@ func handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 	// We run it quietly (-q) since nobody is watching the terminal output
 	args = append(args, "-q")
 
-	// Execute it in the background! The user's dashboard will pick it up 
+	// Execute it in the background! The user's dashboard will pick it up
 	// from history.json automatically when it finishes.
 	go func() {
 		cmd := exec.Command(exe, args...)

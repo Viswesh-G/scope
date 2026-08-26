@@ -9,15 +9,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
+    # read the Go version straight from go.mod so it can never drift out of sync
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.22'
+        go-version-file: go.mod
 
     - name: Install Graphviz
       run: sudo apt-get update && sudo apt-get install -y graphviz
@@ -25,5 +26,14 @@ jobs:
     - name: Build
       run: go build -v ./...
 
+    - name: Vet
+      run: go vet ./...
+
+    - name: Check formatting
+      run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
     - name: Test
       run: go test -v ./...
+
+    - name: Test with race detector
+      run: go test -race ./...

@@ -2,13 +2,13 @@
 // head-to-head and computing a full statistical comparison.
 //
 // Benchmark methodology:
-//   1. Warmup rounds: both tools run a few times with the results discarded.
-//      This warms the OS file cache so neither tool has a cold-start advantage.
-//   2. Timed rounds: both tools run alternately (scope-first, then rg-first,
-//      then rg-first, then scope-first, etc.) so neither tool benefits
-//      systematically from the other having warmed the cache first.
-//   3. Statistics: mean, trimmed mean (10%), P50/P95/P99, standard deviation,
-//      throughput, and a Mann-Whitney U significance test.
+//  1. Warmup rounds: both tools run a few times with the results discarded.
+//     This warms the OS file cache so neither tool has a cold-start advantage.
+//  2. Timed rounds: both tools run alternately (scope-first, then rg-first,
+//     then rg-first, then scope-first, etc.) so neither tool benefits
+//     systematically from the other having warmed the cache first.
+//  3. Statistics: mean, trimmed mean (10%), P50/P95/P99, standard deviation,
+//     throughput, and a Mann-Whitney U significance test.
 package analysis
 
 import (

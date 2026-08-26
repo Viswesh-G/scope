@@ -1,9 +1,9 @@
 // Package ignore figures out which files and directories to skip.
 //
 // Two sources of rules:
-//   1. defaults.yaml - baked into the binary at compile time via go:embed.
-//      Covers .git, node_modules, binary extensions, etc.
-//   2. .scope-ignore  - optional per-repo file, same format as .gitignore.
+//  1. defaults.yaml - baked into the binary at compile time via go:embed.
+//     Covers .git, node_modules, binary extensions, etc.
+//  2. .scope-ignore  - optional per-repo file, same format as .gitignore.
 //
 // Both are checked on every file/dir the walker visits.
 package ignore
@@ -110,9 +110,9 @@ func LoadIgnoreFile(path string) (*IgnoreMatcher, error) {
 
 // ShouldIgnore checks if a path matches any stored pattern.
 // Tries three matching strategies in order:
-//   1. exact basename match  ("Makefile" matches any file named Makefile)
-//   2. glob match            ("*.log" matches "app.log")
-//   3. substring match       ("vendor/" matches "vendor/pkg/file.go")
+//  1. exact basename match  ("Makefile" matches any file named Makefile)
+//  2. glob match            ("*.log" matches "app.log")
+//  3. substring match       ("vendor/" matches "vendor/pkg/file.go")
 func (m *IgnoreMatcher) ShouldIgnore(path string) bool {
 	base := filepath.Base(path)
 	for _, pattern := range m.Patterns {

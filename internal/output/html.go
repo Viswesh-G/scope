@@ -46,7 +46,7 @@ func WriteHTMLReport(filename string, report metrics.Report, matches []HTMLMatch
 	return tmpl.Execute(f, data)
 }
 
-// The HTML template itself. 
+// The HTML template itself.
 // It uses inline CSS (no external frameworks) to keep the file standalone and offline-friendly.
 // It includes tabs for easy navigation and inline SVG bars for workload visualization.
 const htmlTemplate = `<!DOCTYPE html>

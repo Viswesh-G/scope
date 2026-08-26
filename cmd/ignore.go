@@ -44,9 +44,9 @@ var ignoreInitCmd = &cobra.Command{
 }
 
 var ignoreAddCmd = &cobra.Command{
-	Use:  "add [pattern]",
+	Use:   "add [pattern]",
 	Short: "Add a pattern to .scope-ignore",
-	Args: cobra.ExactArgs(1),
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// O_APPEND so we don't overwrite existing content, O_CREATE if file doesn't exist yet
 		f, err := os.OpenFile(".scope-ignore", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)

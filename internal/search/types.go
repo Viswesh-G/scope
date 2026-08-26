@@ -33,7 +33,7 @@ type Config struct {
 	Recursive    bool
 	Workers      int
 	FilenameOnly bool
-	Hotspots     bool   // rank files by match count instead of printing each match
+	Hotspots     bool // rank files by match count instead of printing each match
 	IgnoreCase   bool
 	SkipHistory  bool   // set by the benchmark so test runs don't pollute history
 	Profile      bool   // --profile: write cpu.pprof + mem.pprof to .scope/

@@ -125,8 +125,12 @@ func RunStats() error {
 		patterns[r.Pattern] = struct{}{}
 		totalMatches += r.Matches
 		totalDuration += r.DurationMs
-		if r.DurationMs < fastest { fastest = r.DurationMs }
-		if r.DurationMs > slowest { slowest = r.DurationMs }
+		if r.DurationMs < fastest {
+			fastest = r.DurationMs
+		}
+		if r.DurationMs > slowest {
+			slowest = r.DurationMs
+		}
 	}
 
 	output.PrintHeader("History Stats", "")
@@ -369,4 +373,3 @@ func Replay(nth int) error {
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
-
