@@ -1,4 +1,4 @@
-// This file defines `scope graph` — prints the repository directory tree,
+// This file defines `scp graph` — prints the repository directory tree,
 // optionally as a Graphviz DOT file for visualization.
 package cmd
 
@@ -18,9 +18,9 @@ Use --dot to export a Graphviz DOT file instead of an ASCII tree.
 You can then visualise it with: dot -Tsvg graph.dot > graph.svg
 
 Examples:
-  scope graph
-  scope graph --path ./internal
-  scope graph --dot > graph.dot`,
+  scp graph
+  scp graph --path ./internal
+  scp graph --dot > graph.dot`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path, _ := cmd.Flags().GetString("path")
 		dot, _ := cmd.Flags().GetBool("dot")

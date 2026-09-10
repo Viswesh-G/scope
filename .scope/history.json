@@ -206,5 +206,37 @@
     "workers": 16,
     "matches": 226,
     "duration_ms": 29.8507
+  },
+  {
+    "timestamp": "2026-09-10T13:12:19+05:30",
+    "pattern": "scp",
+    "path": "",
+    "workers": 16,
+    "matches": 0,
+    "duration_ms": 11.2074
+  },
+  {
+    "timestamp": "2026-09-10T13:12:52+05:30",
+    "pattern": "func",
+    "path": ".",
+    "workers": 16,
+    "matches": 375,
+    "duration_ms": 57.5122
+  },
+  {
+    "timestamp": "2026-09-10T16:32:10+05:30",
+    "pattern": "query",
+    "path": ".",
+    "workers": 16,
+    "matches": 12,
+    "duration_ms": 114.93299999999999
+  },
+  {
+    "timestamp": "2026-09-10T17:59:55+05:30",
+    "pattern": "func",
+    "path": ".",
+    "workers": 6,
+    "matches": 378,
+    "duration_ms": 16.4395
   }
 ]

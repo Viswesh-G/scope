@@ -23,10 +23,17 @@ type Registry struct {
 	MatchesFound int64
 
 	WalkDuration  time.Duration
-	SearchTimeNs  int64 // sum of workers' scan time in nanoseconds (stored as int64 for atomic ops)
+	SearchTimeNs  int64 // sum of workers' total CPU time in nanoseconds (stored as int64 for atomic ops)
 	TotalDuration time.Duration
 
 	Workers []*WorkerStats
+}
+
+// WorkerEvent tracks when a worker started processing a file and how long it took.
+// This helps us draw a visual timeline so students can see parallel processing in action!
+type WorkerEvent struct {
+	StartOffsetNs int64 // How many nanoseconds after the search started did this begin?
+	DurationNs    int64 // How many nanoseconds did it take to process the file?
 }
 
 // WorkerStats tracks one goroutine's contribution.
@@ -39,8 +46,9 @@ type WorkerStats struct {
 	BytesScanned int64
 	WorkTimeNs   int64
 
-	Mu    sync.Mutex // protects Files - can't append to a slice atomically
-	Files []string
+	Mu     sync.Mutex // protects Files and Events - we lock it before adding to slices!
+	Files  []string
+	Events []WorkerEvent // list of events for the parallel profile visualization
 }
 
 func NewRegistry(workerCount int) *Registry {

@@ -1,4 +1,4 @@
-// benchmarks scope vs ripgrep - runs both tools many times and computes
+// benchmarks scp vs ripgrep - runs both tools many times and computes
 // real statistics (not just a single timing)
 package cmd
 
@@ -16,8 +16,8 @@ var (
 
 var compareCmd = &cobra.Command{
 	Use:   "compare",
-	Short: "Benchmark scope against ripgrep",
-	Long: `Run scope and ripgrep head-to-head on the same search.
+	Short: "Benchmark scp against ripgrep",
+	Long: `Run scp and ripgrep head-to-head on the same search.
 
 Both tools alternate who goes first each round (to cancel out cache warming effects).
 A few throwaway warmup rounds run first, then the real timing starts.

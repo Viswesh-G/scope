@@ -1,14 +1,16 @@
-// This file implements the `scope compare` benchmark — running scope and ripgrep
-// head-to-head and computing a full statistical comparison.
+// Package analysis provides tools to understand the codebase and search performance.
 //
-// Benchmark methodology:
-//  1. Warmup rounds: both tools run a few times with the results discarded.
-//     This warms the OS file cache so neither tool has a cold-start advantage.
-//  2. Timed rounds: both tools run alternately (scope-first, then rg-first,
-//     then rg-first, then scope-first, etc.) so neither tool benefits
-//     systematically from the other having warmed the cache first.
-//  3. Statistics: mean, trimmed mean (10%), P50/P95/P99, standard deviation,
-//     throughput, and a Mann-Whitney U significance test.
+// This file (compare.go) implements the `scp compare` command. It runs a head-to-head
+// benchmark between our search engine (scp) and ripgrep (rg), and then computes
+// statistical metrics to see which one is faster.
+//
+// How the benchmark works:
+//  1. Warmup: Both tools run a few times silently. This loads the files into the
+//     operating system's memory cache, so the first tool doesn't have an unfair disadvantage.
+//  2. Alternating Runs: We run scp, then rg, then rg, then scp. This prevents any
+//     systematic bias from background processes.
+//  3. Statistics: We calculate the median (P50), the 95th percentile (P95), and run
+//     a Mann-Whitney U test to prove if the speed difference is statistically significant!
 package analysis
 
 import (
@@ -24,6 +26,17 @@ import (
 
 	"github.com/Viswesh-G/scope/internal/output"
 )
+
+// selfBinary returns the path to the currently running scp binary.
+// Using os.Executable() means compare works whether the user ran
+// 'go run .', './scp', or installed via 'go install'.
+func selfBinary() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "scp" // fallback — let the OS find it on PATH
+	}
+	return exe
+}
 
 // CompareResult holds benchmark results for one tool (scope or ripgrep).
 type CompareResult struct {
@@ -102,13 +115,14 @@ func Compare(pattern, path string, runs, warmup int) (CompareResult, CompareResu
 		return CompareResult{}, CompareResult{}, err
 	}
 
+	self := selfBinary()
 	scopeArgs := []string{"search", "-p", pattern, "--path", path, "--no-history", "--no-config"}
 	rgArgs := []string{pattern, path}
 
 	// ── Warmup (alternating order, discarded) ─────────────────────────────────
 	for i := 0; i < warmup; i++ {
 		if i%2 == 0 {
-			runCommand("./scope", scopeArgs...)
+			runCommand(self, scopeArgs...)
 			r := runCommand("rg", rgArgs...)
 			if errors.Is(r.Err, exec.ErrNotFound) {
 				return CompareResult{}, CompareResult{}, fmt.Errorf(
@@ -123,7 +137,7 @@ func Compare(pattern, path string, runs, warmup int) (CompareResult, CompareResu
 				)
 			}
 			_ = r
-			runCommand("./scope", scopeArgs...)
+			runCommand(self, scopeArgs...)
 		}
 	}
 
@@ -136,9 +150,9 @@ func Compare(pattern, path string, runs, warmup int) (CompareResult, CompareResu
 	// slots, eliminating the systematic ordering bias.
 	for i := 0; i < runs; i++ {
 		if i%2 == 0 {
-			sr := runCommand("./scope", scopeArgs...)
+			sr := runCommand(self, scopeArgs...)
 			if sr.Err != nil && !isExitErr(sr.Err) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf("scope failed: %w", sr.Err)
+				return CompareResult{}, CompareResult{}, fmt.Errorf("scp failed: %w", sr.Err)
 			}
 			scopeSamples = append(scopeSamples, sr.Duration)
 
@@ -154,9 +168,9 @@ func Compare(pattern, path string, runs, warmup int) (CompareResult, CompareResu
 			}
 			rgSamples = append(rgSamples, rr.Duration)
 
-			sr := runCommand("./scope", scopeArgs...)
+			sr := runCommand(self, scopeArgs...)
 			if sr.Err != nil && !isExitErr(sr.Err) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf("scope failed: %w", sr.Err)
+				return CompareResult{}, CompareResult{}, fmt.Errorf("scp failed: %w", sr.Err)
 			}
 			scopeSamples = append(scopeSamples, sr.Duration)
 		}

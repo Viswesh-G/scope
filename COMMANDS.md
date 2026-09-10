@@ -13,7 +13,7 @@ Search files for a regex pattern. The core command.
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--pattern` | `-p` | *(req)* | Regex pattern to search for |
-| `--path` | | `.` | Directory to search in |
+| `--path` | | `.` | Directory to search in (use `-` for stdin) |
 | `--recursive` | `-r` | `true` | Search subdirectories |
 | `--ignore-case` | `-i` | `false` | Case-insensitive search |
 | `--workers` | `-w` | #CPUs | Number of parallel goroutines |
@@ -24,6 +24,11 @@ Search files for a regex pattern. The core command.
 | `--max-results` | `-m` | `0` (unlimited) | Stop showing matches after N results |
 | `--output` | `-o` | *(stdout)* | Write matches to a file instead of stdout |
 | `--html` | | `""` | Write a beautiful standalone HTML report |
+| `--json` | | `false` | Emit matches as a JSON array (file, line, content) |
+| `--after-context` | `-A` | `0` | Print N lines of context after each match |
+| `--before-context` | `-B` | `0` | Print N lines of context before each match |
+| `--context` | `-C` | `0` | Print N lines of context on both sides (sets -A and -B) |
+| `--glob` | `-g` | *(none)* | File glob pattern to include/exclude (repeatable, e.g. `*.go`, `!*_test.go`) |
 | `--profile` | | `false` | Write CPU + memory profiles to `.scope/` |
 
 **Examples:**
@@ -54,6 +59,21 @@ scope search -p "github" --html report.html
 
 # Filename search (find files named like the pattern)
 scope search -p "engine" -f
+
+# Show 2 lines of context around every match (like grep -C 2)
+scope search -p "TODO" -C 2
+
+# Asymmetric context: 3 lines before, 1 line after
+scope search -p "func" -B 3 -A 1
+
+# Only search Go files, skip test files
+scope search -p "TODO" -g "*.go" -g "!*_test.go"
+
+# Emit results as a JSON array (pipe-friendly)
+scope search -p "error" --json
+
+# Search stdin (pipe input directly)
+cat server.log | scope search -p "ERROR" --path -
 ```
 
 ---
@@ -377,4 +397,16 @@ scope search -p "github" --profile
 # You can now easily view .scope/flamegraphs.md directly in your IDE!
 # Or continue using pprof:
 go tool pprof -http=:8080 .scope/cpu.pprof
+
+# Show surrounding context around every error (like grep -C 3)
+scope search -p "error" -C 3
+
+# Grep only Go source files (skip tests and vendor)
+scope search -p "TODO" -g "*.go" -g "!*_test.go" -g "!vendor/*"
+
+# Pipe a log file into scp and filter live
+cat app.log | scope search -p "FATAL" --path -
+
+# Machine-readable output for scripts / CI
+scope search -p "FIXME" --json -q | jq '.[].file' | sort -u
 ```

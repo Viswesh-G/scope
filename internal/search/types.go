@@ -18,28 +18,37 @@ const (
 )
 
 // Match is one result: a file + line number + the matching text.
+// Now supports context lines and group separators for better search quality.
 type Match struct {
-	Mode    SearchMode
-	File    string
-	LineNum int // 0 for filename matches
-	Line    string
+	Mode     SearchMode
+	File     string
+	LineNum  int  // 0 for filename matches or group separators
+	Line     string
+	IsContext bool // true if this is a context line around a match, false if it is a real match
+	GroupSep  bool // true if this represents a "--" divider between context groups
 }
 
 // Config is everything the search engine needs to know.
 // Built from CLI flags in cmd/search.go and passed to Run().
 type Config struct {
-	Pattern      string
-	Path         string
-	Recursive    bool
-	Workers      int
-	FilenameOnly bool
-	Hotspots     bool // rank files by match count instead of printing each match
-	IgnoreCase   bool
-	SkipHistory  bool   // set by the benchmark so test runs don't pollute history
-	Profile      bool   // --profile: write cpu.pprof + mem.pprof to .scope/
-	Quiet        bool   // --quiet: skip the metrics table at the end
-	Count        bool   // --count: print only the total match count, not every line
-	MaxResults   int    // --max-results: stop after this many matches (0 = no limit)
-	OutputFile   string // --output: write matches to this file instead of stdout
-	HTMLFile     string // --html: write an HTML report to this file
+	OriginalPattern string // the pattern exactly as typed by the user (before (?i) prepend)
+	Pattern         string // the pattern used internally (may have (?i) prepended)
+	Path            string
+	Recursive       bool
+	Workers         int
+	FilenameOnly    bool
+	Hotspots        bool     // rank files by match count instead of printing each match
+	IgnoreCase      bool
+	SkipHistory     bool     // set by the benchmark so test runs don't pollute history
+	Profile         bool     // --profile: write cpu.pprof + mem.pprof to .scope/
+	Quiet           bool     // --quiet: skip the metrics table at the end
+	Count           bool     // --count: print only the total match count, not every line
+	JSONOutput      bool     // --json: emit matches as a JSON array
+	MaxResults      int      // --max-results: stop after this many matches (0 = no limit)
+	OutputFile      string   // --output: write matches to this file instead of stdout
+	HTMLFile        string   // --html: write an HTML report to this file
+	BeforeContext   int      // -B: lines of leading context
+	AfterContext    int      // -A: lines of trailing context
+	Globs           []string // -g: file glob patterns (e.g. *.go, !*_test.go)
+	ParallelProfile bool     // --parallel-profile: visually show how workers processed files
 }

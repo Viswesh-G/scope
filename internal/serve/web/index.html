@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>scp • Live Dashboard</title>
+    <meta name="description" content="SCP live search dashboard — real-time search history, latency sparklines, and interactive console">
+    <!-- JetBrains Mono for the terminal aesthetic (Omarchy style) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #09090b;
+            --surface: #18181b;
+            --border: #27272a;
+            --fg: #e4e4e7;
+            --fg-dim: #71717a;
+            --accent: #10b981;
+            --accent-dim: rgba(16, 185, 129, 0.15);
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --blue: #3b82f6;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: var(--bg);
+            color: var(--fg);
+            line-height: 1.5;
+            padding: 2rem;
+            /* Subtle CRT scanline effect */
+            background-image:
+                linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.22) 50%),
+                linear-gradient(90deg, rgba(255,0,0,0.04), rgba(0,255,0,0.02), rgba(0,0,255,0.04));
+            background-size: 100% 2px, 3px 100%;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        /* Header */
+        header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem; border-bottom: 1px dashed var(--border); padding-bottom: 1rem; }
+        h1 { color: var(--accent); font-size: 2rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+        .subtitle { color: var(--fg-dim); font-size: 0.9rem; margin-top: 0.25rem; }
+        .live-indicator { display: flex; align-items: center; gap: 0.5rem; color: var(--accent); font-weight: 700; font-size: 0.8rem; }
+        .pulse { width: 8px; height: 8px; background-color: var(--accent); border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 var(--accent-dim); }
+            70% { box-shadow: 0 0 0 10px rgba(16,185,129,0); }
+            100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+        }
+
+        /* Layout */
+        .layout-grid { display: grid; grid-template-columns: 320px 1fr; gap: 2rem; }
+
+        /* Panels */
+        .sidebar { display: flex; flex-direction: column; gap: 1.5rem; }
+        .panel { background-color: var(--surface); border: 1px solid var(--border); border-radius: 2px; padding: 1.25rem; position: relative; }
+        .panel::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background-color: var(--border); }
+        .panel.active-panel::before { background-color: var(--accent); }
+        .panel-title { color: var(--fg-dim); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; }
+
+        /* Stat grid */
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .stat-val { font-size: 1.4rem; color: var(--fg); font-weight: 700; }
+        .stat-lbl { font-size: 0.7rem; color: var(--fg-dim); text-transform: uppercase; margin-top: 0.2rem; }
+
+        /* Chart */
+        canvas { display: block; width: 100%; height: 56px; margin-top: 0.75rem; }
+
+        /* Main */
+        .main-content { display: flex; flex-direction: column; gap: 1.5rem; }
+
+        /* CLI Box */
+        .cli-box { background: #000; border: 1px solid var(--border); border-radius: 2px; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.75rem; }
+        .cli-box:focus-within { border-color: var(--accent); }
+        .cli-prompt { color: var(--accent); font-weight: 700; white-space: nowrap; }
+        .cli-input { background: transparent; border: none; color: var(--fg); font-family: inherit; font-size: 1rem; width: 100%; outline: none; }
+        .cli-input::placeholder { color: var(--border); }
+        .cli-hint { color: var(--fg-dim); font-size: 0.75rem; margin-top: 0.5rem; }
+
+        /* Table */
+        table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        th { text-align: left; color: var(--fg-dim); font-weight: 400; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+        td { padding: 0.6rem 0.75rem; border-bottom: 1px dashed var(--border); vertical-align: middle; }
+        tr:hover td { background-color: rgba(255,255,255,0.02); }
+        tr:last-child td { border-bottom: none; }
+
+        .t-time { color: var(--fg-dim); }
+        .t-pattern { color: var(--blue); font-weight: 700; }
+        .t-path { color: var(--fg); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .t-matches { color: var(--warning); text-align: right; }
+        .t-dur { color: var(--accent); text-align: right; }
+
+        /* Status footer */
+        .status-bar { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; color: var(--fg-dim); font-size: 0.75rem; }
+        .status-ok { color: var(--accent); }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .layout-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div>
+            <h1>SCP</h1>
+            <div class="subtitle">Self-profiling concurrent search engine &bull; Live Dashboard</div>
+        </div>
+        <div class="live-indicator">
+            <div class="pulse" id="conn-dot"></div>
+            <span id="conn-label">SSE_CONNECTED</span>
+        </div>
+    </header>
+
+    <div class="layout-grid">
+        <div class="sidebar">
+            <div class="panel active-panel">
+                <div class="panel-title">System Telemetry</div>
+                <div class="stat-grid">
+                    <div>
+                        <div class="stat-val" id="st-total">—</div>
+                        <div class="stat-lbl">Queries Run</div>
+                    </div>
+                    <div>
+                        <div class="stat-val" id="st-matches" style="color:var(--warning)">—</div>
+                        <div class="stat-lbl">Total Hits</div>
+                    </div>
+                    <div>
+                        <div class="stat-val" id="st-avg">—</div>
+                        <div class="stat-lbl">Mean Latency</div>
+                    </div>
+                    <div>
+                        <div class="stat-val" id="st-fast" style="color:var(--accent)">—</div>
+                        <div class="stat-lbl">Peak Speed</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Latency History (ms)</div>
+                <canvas id="latencyChart" aria-label="Latency sparkline chart"></canvas>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="panel">
+                <div class="panel-title">Interactive Console</div>
+                <div class="cli-box">
+                    <span class="cli-prompt">scp search -p</span>
+                    <input id="cmd-input" class="cli-input" type="text" placeholder="regex pattern..." autocomplete="off" autofocus aria-label="Search pattern">
+                </div>
+                <div class="cli-hint">Press Enter to search &bull; Esc to clear</div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Execution Log</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Pattern</th>
+                            <th>Path</th>
+                            <th style="text-align:right">Hits</th>
+                            <th style="text-align:right">ms</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body">
+                        <tr><td colspan="5" style="color:var(--fg-dim);text-align:center;padding:2rem">Loading history...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span>scp &bull; live dashboard</span>
+        <span class="status-ok" id="status-msg">Connecting...</span>
+    </div>
+</div>
+
+<script>
+    // --- State ---
+    let history = [];
+    const latencies = [];
+
+    // --- Elements ---
+    const $ = id => document.getElementById(id);
+    const els = {
+        tbody: $('history-body'),
+        total: $('st-total'),
+        matches: $('st-matches'),
+        avg: $('st-avg'),
+        fast: $('st-fast'),
+        input: $('cmd-input'),
+        canvas: $('latencyChart'),
+        connDot: $('conn-dot'),
+        connLabel: $('conn-label'),
+        status: $('status-msg'),
+    };
+
+    // --- Sparkline chart (HTML5 Canvas) ---
+    function drawSparkline() {
+        const canvas = els.canvas;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+
+        // Size the canvas correctly for high-DPI displays
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+
+        const w = rect.width;
+        const h = rect.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        const pts = latencies.slice(-60);
+        if (pts.length < 2) return;
+
+        const max = Math.max(...pts, 1);
+        const step = w / (pts.length - 1);
+
+        // Line
+        ctx.beginPath();
+        ctx.moveTo(0, h - (pts[0] / max) * (h - 4));
+        for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(i * step, h - (pts[i] / max) * (h - 4));
+        }
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+
+        // Fill under line
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.fillStyle = 'rgba(16,185,129,0.08)';
+        ctx.fill();
+    }
+
+    // --- Update all UI elements ---
+    function updateUI() {
+        if (!history.length) return;
+
+        let totalMatches = 0, totalDur = 0, fastest = Infinity;
+        history.forEach(r => {
+            totalMatches += r.matches;
+            totalDur += r.duration_ms;
+            if (r.duration_ms < fastest) fastest = r.duration_ms;
+        });
+
+        els.total.textContent = history.length;
+        els.matches.textContent = totalMatches.toLocaleString();
+        els.avg.textContent = (totalDur / history.length).toFixed(1) + 'ms';
+        els.fast.textContent = fastest.toFixed(1) + 'ms';
+
+        drawSparkline();
+
+        // Table (newest first, max 20 rows)
+        const rows = history.slice(0, 20).map(r => {
+            const time = new Date(r.timestamp).toLocaleTimeString([], {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+            return `<tr>
+                <td class="t-time">${time}</td>
+                <td class="t-pattern">${escHtml(r.pattern)}</td>
+                <td class="t-path">${escHtml(r.path)}</td>
+                <td class="t-matches">${r.matches.toLocaleString()}</td>
+                <td class="t-dur">${r.duration_ms.toFixed(2)}</td>
+            </tr>`;
+        }).join('');
+
+        els.tbody.innerHTML = rows || '<tr><td colspan="5" style="color:var(--fg-dim);text-align:center">No history yet</td></tr>';
+    }
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // --- Load initial history ---
+    async function loadHistory() {
+        try {
+            const res = await fetch('/api/history');
+            if (!res.ok) throw new Error(res.statusText);
+            const data = await res.json();
+            if (data && data.length) {
+                // API returns oldest-first; we want newest-first for display
+                history = data.slice().reverse();
+                latencies.push(...history.slice().reverse().map(r => r.duration_ms));
+                updateUI();
+            }
+            els.status.textContent = 'Ready';
+        } catch (e) {
+            els.status.textContent = 'Could not load history: ' + e.message;
+        }
+    }
+
+    // --- SSE live stream ---
+    function connectSSE() {
+        const evtSource = new EventSource('/api/stream');
+
+        evtSource.onopen = () => {
+            els.connDot.style.backgroundColor = 'var(--accent)';
+            els.connLabel.textContent = 'SSE_CONNECTED';
+            els.status.textContent = 'Live';
+        };
+
+        evtSource.onmessage = (e) => {
+            const record = JSON.parse(e.data);
+            history.unshift(record);
+            latencies.push(record.duration_ms);
+            if (history.length > 1000) history.pop();
+            updateUI();
+        };
+
+        evtSource.onerror = () => {
+            els.connDot.style.backgroundColor = 'var(--danger)';
+            els.connLabel.textContent = 'RECONNECTING';
+            evtSource.close();
+            setTimeout(connectSSE, 3000);
+        };
+    }
+
+    // --- Interactive console ---
+    els.input.addEventListener('keydown', async e => {
+        if (e.key === 'Enter') {
+            const val = els.input.value.trim();
+            if (!val) return;
+            els.input.disabled = true;
+            els.status.textContent = `Searching for "${val}"...`;
+            try {
+                await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pattern: val, path: '.', workers: 0}),
+                });
+                els.status.textContent = 'Search dispatched — waiting for result...';
+            } catch (err) {
+                els.status.textContent = 'Search failed: ' + err.message;
+            } finally {
+                els.input.disabled = false;
+                els.input.value = '';
+                els.input.focus();
+            }
+        } else if (e.key === 'Escape') {
+            els.input.value = '';
+        }
+    });
+
+    window.addEventListener('resize', drawSparkline);
+
+    // Boot
+    loadHistory().then(connectSSE);
+</script>
+</body>
+</html>

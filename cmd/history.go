@@ -1,23 +1,23 @@
-// This file defines the `scope history` command and all its subcommands.
+// This file defines the `scp history` command and all its subcommands.
 //
-// Every time you run `scope search`, the search details (pattern, path,
+// Every time you run `scp search`, the search details (pattern, path,
 // duration, match count) are saved to .scope/history.json. The history
 // commands let you explore that data: see recent searches, find the slowest
 // ones, filter by pattern, export to JSON, and more.
 //
 // Subcommands:
 //
-//	scope history           — show all recent searches
-//	scope history stats     — aggregate stats (total, avg time, fastest, slowest)
-//	scope history top       — most frequently searched patterns
-//	scope history slowest   — top 10 slowest searches
-//	scope history fastest   — top 10 fastest searches
-//	scope history recent    — N most recent searches
-//	scope history pattern   — filter history by pattern text
-//	scope history path      — filter history by search path
-//	scope history export    — export history to a JSON file
-//	scope history prune     — keep only the newest N records
-//	scope history clear     — delete all history
+//	scp history           — show all recent searches
+//	scp history stats     — aggregate stats (total, avg time, fastest, slowest)
+//	scp history top       — most frequently searched patterns
+//	scp history slowest   — top 10 slowest searches
+//	scp history fastest   — top 10 fastest searches
+//	scp history recent    — N most recent searches
+//	scp history pattern   — filter history by pattern text
+//	scp history path      — filter history by search path
+//	scp history export    — export history to a JSON file
+//	scp history prune     — keep only the newest N records
+//	scp history clear     — delete all history
 package cmd
 
 import (
@@ -35,12 +35,12 @@ var (
 	replayIndex int    // --nth : which entry to replay (1 = most recent)
 )
 
-// historyCmd is the parent `scope history` command.
+// historyCmd is the parent `scp history` command.
 // Running it with no subcommand shows a full chronological list.
 var historyCmd = &cobra.Command{
 	Use:   "history",
 	Short: "View and manage search history",
-	Long: `Explore your past searches. Every scope search is recorded to .scope/history.json.
+	Long: `Explore your past searches. Every scp search is recorded to .scope/history.json.
 
 Run with no subcommand to see all recent searches in a table.
 Use subcommands for filtering, statistics, and management.`,
@@ -161,8 +161,8 @@ By default replays the most recent search. Use --nth to pick an older one.
 The replayed search IS saved to history again (as a new entry).
 
 Examples:
-  scope history replay          # re-run the last search
-  scope history replay --nth 3  # re-run the 3rd most recent search`,
+  scp history replay          # re-run the last search
+  scp history replay --nth 3  # re-run the 3rd most recent search`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return analysis.Replay(replayIndex)
 	},
@@ -184,19 +184,19 @@ func init() {
 	historyCmd.AddCommand(historyClearCmd)
 	historyCmd.AddCommand(historyReplayCmd)
 
-	// --limit flag for `scope history recent`
+	// --limit flag for `scp history recent`
 	historyRecentCmd.Flags().IntVarP(
 		&recentLimit, "limit", "n", 10,
 		"number of recent searches to show",
 	)
 
-	// -o / --output flag for `scope history export`
+	// -o / --output flag for `scp history export`
 	historyExportCmd.Flags().StringVarP(
 		&exportFile, "output", "o", "history_export.json",
 		"output JSON file path",
 	)
 
-	// --nth flag for `scope history replay`
+	// --nth flag for `scp history replay`
 	historyReplayCmd.Flags().IntVar(
 		&replayIndex, "nth", 1,
 		"which past search to replay (1 = most recent)",

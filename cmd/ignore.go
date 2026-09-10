@@ -72,7 +72,7 @@ var ignoreRemoveCmd = &cobra.Command{
 		b, err := os.ReadFile(".scope-ignore")
 		if err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf(".scope-ignore doesn't exist - run 'scope ignore init' first")
+				return fmt.Errorf(".scope-ignore doesn't exist - run 'scp ignore init' first")
 			}
 			return err
 		}
@@ -112,7 +112,7 @@ var ignoreListCmd = &cobra.Command{
 		b, err := os.ReadFile(".scope-ignore")
 		if err != nil {
 			if os.IsNotExist(err) {
-				output.PrintWarning("No .scope-ignore found. Run 'scope ignore init' to create one.")
+				output.PrintWarning("No .scope-ignore found. Run 'scp ignore init' to create one.")
 				return nil
 			}
 			return err

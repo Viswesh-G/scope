@@ -1,4 +1,4 @@
-// This file defines `scope dupes` — finds files with identical contents
+// This file defines `scp dupes` — finds files with identical contents
 // by computing a SHA256 hash of every file and grouping matches.
 package cmd
 
@@ -20,8 +20,8 @@ meaning they have byte-for-byte identical contents.
 Uses parallel workers (same concurrency model as search) for speed.
 
 Example:
-  scope dupes
-  scope dupes --path ./assets -w 4`,
+  scp dupes
+  scp dupes --path ./assets -w 4`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path, _ := cmd.Flags().GetString("path")
 		workers, _ := cmd.Flags().GetInt("workers")

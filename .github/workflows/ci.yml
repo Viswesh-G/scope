@@ -8,32 +8,63 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # read the Go version straight from go.mod so it can never drift out of sync
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
+        # reads the required Go version from go.mod - no need to update this file when Go bumps
         go-version-file: go.mod
+        # cache Go module downloads so repeated CI runs are faster
+        cache: true
 
-    - name: Install Graphviz
+    - name: Install Graphviz (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get update && sudo apt-get install -y graphviz
 
+    - name: Install Graphviz (Windows)
+      if: matrix.os == 'windows-latest'
+      run: choco install graphviz -y
+
     - name: Build
-      run: go build -v ./...
+      run: make build
 
     - name: Vet
-      run: go vet ./...
+      run: make vet
 
-    - name: Check formatting
-      run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+    - name: Check formatting (Ubuntu only)
+      if: matrix.os == 'ubuntu-latest'
+      run: make fmt-check
 
-    - name: Test
-      run: go test -v ./...
+    - name: Lint (Ubuntu only)
+      if: matrix.os == 'ubuntu-latest'
+      uses: golangci/golangci-lint-action@v6
+      with:
+        # pin a version so lint results are reproducible across CI runs
+        version: v1.59
+
+    - name: Security scan
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        make vuln
+
+    - name: Test and Coverage
+      run: make cover
+
+    - name: Enforce coverage threshold (Ubuntu only)
+      if: matrix.os == 'ubuntu-latest'
+      # fail the build if total coverage drops below 70%
+      run: |
+        COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+        echo "Total coverage: ${COVERAGE}%"
+        awk "BEGIN { if ($COVERAGE < 70) { print \"Coverage $COVERAGE% is below 70% threshold\"; exit 1 } }"
 
     - name: Test with race detector
-      run: go test -race ./...
+      run: make race

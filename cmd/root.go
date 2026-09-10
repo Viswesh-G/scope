@@ -18,14 +18,19 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "scope",
+	Use:   "scp",
 	Short: "A fast, self-profiling grep",
-	Long: `Scope is a fast, concurrent, and customizable grep-like tool.
+	Long: `scp (scp) is a fast, concurrent, self-profiling search engine.
 It searches files for regex patterns and shows detailed performance metrics
 (worker stats, throughput, load balance) after every search.
 
-Customize its colors with 'scope config set-color'.
-Control which files are skipped with 'scope ignore'.`,
+  scp search -p "TODO"          # search files
+  scp tui                       # open the interactive TUI
+  scp serve                     # start the live web dashboard
+  scp compare -p "func"         # benchmark against ripgrep
+
+Customize colors with 'scp config set-color'.
+Control which files are skipped with 'scp ignore'.`,
 
 	// runs before every subcommand - loads config + sets up colors
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -38,6 +43,11 @@ Control which files are skipped with 'scope ignore'.`,
 
 	SilenceUsage:  true,
 	SilenceErrors: true,
+}
+
+func init() {
+	// this generates the "completion" subcommand for bash/zsh/fish/powershell automatically
+	rootCmd.InitDefaultCompletionCmd()
 }
 
 func Execute() {

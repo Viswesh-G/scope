@@ -41,7 +41,7 @@ func TestSearchFileContents(t *testing.T) {
 	}
 
 	re := regexp.MustCompile(`quick`)
-	bytesScanned, matches := searchFileContents(path, re.MatchString)
+	bytesScanned, matches := searchFileContents(path, re.MatchString, 0, 0)
 
 	if bytesScanned != int64(len(content)) {
 		t.Errorf("bytes scanned = %d, want %d", bytesScanned, len(content))
@@ -60,7 +60,7 @@ func TestSearchFileContents(t *testing.T) {
 }
 
 func TestSearchFileContentsMissingFile(t *testing.T) {
-	bytes, matches := searchFileContents("does/not/exist.txt", func(string) bool { return true })
+	bytes, matches := searchFileContents("does/not/exist.txt", func(string) bool { return true }, 0, 0)
 	if bytes != 0 || matches != nil {
 		t.Error("a missing file should give 0 bytes and no matches, not an error")
 	}
@@ -218,5 +218,162 @@ func TestRunIgnoresScopeIgnorePatterns(t *testing.T) {
 	}
 	if strings.Contains(output, "skipme.txt") {
 		t.Errorf("skipme.txt should have been ignored:\n%s", output)
+	}
+}
+
+func TestContextLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "context.txt")
+	content := "line 1\nline 2\ntarget\nline 4\nline 5\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		OriginalPattern: "target",
+		Pattern:         "target",
+		Path:            dir,
+		Workers:         1,
+		BeforeContext:   1,
+		AfterContext:    1,
+		Quiet:           true,
+		SkipHistory:     true,
+		OutputFile:      filepath.Join(dir, "out.txt"),
+	}
+
+	if err := Run(cfg); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, err := os.ReadFile(cfg.OutputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(data)
+
+	if !strings.Contains(output, "line 2") {
+		t.Errorf("expected before context 'line 2', got:\n%s", output)
+	}
+	if !strings.Contains(output, "line 4") {
+		t.Errorf("expected after context 'line 4', got:\n%s", output)
+	}
+}
+
+func TestGlobFiltering(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "match.go"), []byte("target\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "skip.go"), []byte("target\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "match_test.go"), []byte("target\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "other.txt"), []byte("target\n"), 0644)
+
+	cfg := Config{
+		OriginalPattern: "target",
+		Pattern:         "target",
+		Path:            dir,
+		Workers:         1,
+		Globs:           []string{"*.go", "!skip.go"},
+		Quiet:           true,
+		SkipHistory:     true,
+		OutputFile:      filepath.Join(dir, "out.txt"),
+	}
+
+	if err := Run(cfg); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, err := os.ReadFile(cfg.OutputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(data)
+
+	if !strings.Contains(output, "match.go") {
+		t.Errorf("match.go should be included")
+	}
+	if !strings.Contains(output, "match_test.go") {
+		t.Errorf("match_test.go should be included")
+	}
+	if strings.Contains(output, "skip.go") {
+		t.Errorf("skip.go should be excluded by negative glob")
+	}
+	if strings.Contains(output, "other.txt") {
+		t.Errorf("other.txt should be excluded as it does not match *.go")
+	}
+}
+
+func TestBinaryFileSkip(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "text.txt")
+	binPath := filepath.Join(dir, "bin.dat")
+	
+	os.WriteFile(txtPath, []byte("valid target here\n"), 0644)
+	os.WriteFile(binPath, []byte("target \x00 some binary data\n"), 0644)
+
+	cfg := Config{
+		OriginalPattern: "target",
+		Pattern:         "target",
+		Path:            dir,
+		Workers:         1,
+		Quiet:           true,
+		SkipHistory:     true,
+		OutputFile:      filepath.Join(dir, "out.txt"),
+	}
+
+	if err := Run(cfg); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, err := os.ReadFile(cfg.OutputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(data)
+
+	if !strings.Contains(output, "text.txt") {
+		t.Errorf("expected text.txt to be searched")
+	}
+	if strings.Contains(output, "bin.dat") {
+		t.Errorf("expected bin.dat to be skipped as binary")
+	}
+}
+
+func TestStdinSearch(t *testing.T) {
+	// Temporarily replace os.Stdin
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+
+	dir := t.TempDir()
+	stdinFile := filepath.Join(dir, "stdin_mock.txt")
+	os.WriteFile(stdinFile, []byte("stdin target\n"), 0644)
+	
+	f, err := os.Open(stdinFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	os.Stdin = f
+
+	cfg := Config{
+		OriginalPattern: "target",
+		Pattern:         "target",
+		Path:            "-", // Signals stdin search
+		Workers:         1,
+		Quiet:           true,
+		SkipHistory:     true,
+		OutputFile:      filepath.Join(dir, "out.txt"),
+	}
+
+	if err := Run(cfg); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, err := os.ReadFile(cfg.OutputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(data)
+
+	if !strings.Contains(output, "<stdin>") {
+		t.Errorf("expected <stdin> in output, got: %s", output)
 	}
 }

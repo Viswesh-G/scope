@@ -14,8 +14,8 @@ var serveCmd = &cobra.Command{
 The dashboard automatically updates to show your search history and metrics.
 
 Example:
-  scope serve
-  scope serve --port 3000`,
+  scp serve
+  scp serve --port 3000`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return serve.StartServer(flagPort)
 	},

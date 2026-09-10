@@ -14,7 +14,7 @@ import (
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage CLI configuration and appearance",
-	Long: `Manage your scope CLI configuration, including colors and aesthetic preferences.
+	Long: `Manage your scp CLI configuration, including colors and aesthetic preferences.
 Changes are saved to ~/.scope-config.yaml and persist across sessions.`,
 }
 
@@ -22,7 +22,7 @@ var configSetColorCmd = &cobra.Command{
 	Use:   "set-color [element] [color]",
 	Short: "Set the color of an output element",
 	Long: `Set the color of a specific output element (e.g. title, match, file).
-Run 'scope config list' to see all elements and valid color names.`,
+Run 'scp config list' to see all elements and valid color names.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		element, colorName := args[0], args[1]

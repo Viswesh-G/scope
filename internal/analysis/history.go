@@ -1,5 +1,10 @@
-// Package analysis is everything that isn't the search engine itself:
-// history, benchmarking, file stats, dep counting, duplicate detection, and the directory graph.
+// Package analysis also handles saving and loading search history.
+//
+// This file (history.go) manages the .scope/history.json file. Every time a user
+// runs a search, we save a record of it here. This allows us to build features like:
+//   - "What are my most common searches?" (RunTop)
+//   - "Which searches took the longest?" (RunSlowest)
+//   - "Re-run my last search" (Replay)
 package analysis
 
 import (

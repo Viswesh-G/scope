@@ -1,4 +1,4 @@
-// scope audit chains several analysis commands together into one shot.
+// scp audit chains several analysis commands together into one shot.
 // Instead of running stats + deps + dupes separately, one command gives you
 // a full health picture of the codebase: what files exist, what they depend on,
 // and whether any files are accidentally duplicated.
@@ -16,16 +16,16 @@ var auditCmd = &cobra.Command{
 	Long: `Run a full audit of the codebase in one command.
 
 Combines three analysis passes:
-  1. File extension stats     (scope stats)
-  2. Go dependency counts     (scope deps)
-  3. Duplicate file detection (scope dupes)
+  1. File extension stats     (scp stats)
+  2. Go dependency counts     (scp deps)
+  3. Duplicate file detection (scp dupes)
 
 Useful as a single command to get a complete picture of the repo.
 
 Examples:
-  scope audit
-  scope audit --path ./internal
-  scope audit --skip-dupes    (skip the slower duplicate scan)`,
+  scp audit
+  scp audit --path ./internal
+  scp audit --skip-dupes    (skip the slower duplicate scan)`,
 	RunE: runAudit,
 }
 
