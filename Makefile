@@ -30,8 +30,7 @@ cover:
 	go tool cover -func=coverage.out
 
 vuln:
-	@command -v govulncheck >/dev/null 2>&1 || (echo "govulncheck not found. Install it with: go install golang.org/x/vuln/cmd/govulncheck@latest" && exit 1)
-	govulncheck ./...
+	go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
 complete:
 	# Generate shell completion scripts for scp (e.g., bash, zsh, fish, powershell).
@@ -45,8 +44,7 @@ fmt:
 	gofmt -w .
 
 fmt-check:
-	@out=$$(gofmt -l .); \
-	if [ -n "$$out" ]; then echo "these files need formatting:"; echo "$$out"; exit 1; fi
+	go run ./tools/fmtcheck
 
 # run everything CI runs, before pushing
 check: vet fmt-check vuln test

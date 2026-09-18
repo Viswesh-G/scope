@@ -154,8 +154,6 @@ func BenchmarkWorkerScaling(b *testing.B) {
 	}
 }
 
-
-
 // BenchmarkSearchFileContents measures a single file scan, no concurrency.
 // Useful for isolating just the I/O + matching cost.
 func BenchmarkSearchFileContents(b *testing.B) {

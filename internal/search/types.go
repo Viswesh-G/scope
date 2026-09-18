@@ -20,10 +20,10 @@ const (
 // Match is one result: a file + line number + the matching text.
 // Now supports context lines and group separators for better search quality.
 type Match struct {
-	Mode     SearchMode
-	File     string
-	LineNum  int  // 0 for filename matches or group separators
-	Line     string
+	Mode      SearchMode
+	File      string
+	LineNum   int // 0 for filename matches or group separators
+	Line      string
 	IsContext bool // true if this is a context line around a match, false if it is a real match
 	GroupSep  bool // true if this represents a "--" divider between context groups
 }
@@ -37,7 +37,7 @@ type Config struct {
 	Recursive       bool
 	Workers         int
 	FilenameOnly    bool
-	Hotspots        bool     // rank files by match count instead of printing each match
+	Hotspots        bool // rank files by match count instead of printing each match
 	IgnoreCase      bool
 	SkipHistory     bool     // set by the benchmark so test runs don't pollute history
 	Profile         bool     // --profile: write cpu.pprof + mem.pprof to .scope/

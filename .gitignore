@@ -1,2 +1,5 @@
 *.txt
 *.exe
+.scope/
+coverage.out
+completion.sh

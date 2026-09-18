@@ -4,10 +4,11 @@
 // and receives live updates via Server-Sent Events (SSE).
 //
 // Endpoints:
-//   GET  /           → the dashboard HTML page
-//   GET  /api/history → search history as JSON
-//   POST /api/search  → trigger a search (async, result visible in history)
-//   GET  /api/stream  → SSE stream of new search records
+//
+//	GET  /           → the dashboard HTML page
+//	GET  /api/history → search history as JSON
+//	POST /api/search  → trigger a search (async, result visible in history)
+//	GET  /api/stream  → SSE stream of new search records
 package serve
 
 import (
@@ -158,6 +159,9 @@ func handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Search requests come from the local dashboard, so keep the payload small.
+	// This prevents a malformed request from being held in memory indefinitely.
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var req SearchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
@@ -195,8 +199,9 @@ func handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 		_ = cmd.Run()
 	}()
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte(`{"status": "searching"}`))
+	_, _ = w.Write([]byte(`{"status": "searching"}`))
 }
 
 func handleStreamAPI(w http.ResponseWriter, r *http.Request) {

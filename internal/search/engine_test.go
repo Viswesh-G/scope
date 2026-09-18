@@ -147,6 +147,31 @@ func TestRunInvalidPattern(t *testing.T) {
 	}
 }
 
+func TestRunNormalizesInvalidWorkerCount(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "input.txt")
+	if err := os.WriteFile(path, []byte("target\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{
+		Pattern: "target", Path: dir, Recursive: true, Workers: 0,
+		Quiet: true, SkipHistory: true, OutputFile: filepath.Join(dir, "out.txt"),
+	}
+	if err := Run(cfg); err != nil {
+		t.Fatalf("zero workers should be handled safely: %v", err)
+	}
+}
+
+func TestRunReportsWalkErrors(t *testing.T) {
+	cfg := Config{
+		Pattern: "target", Path: filepath.Join(t.TempDir(), "missing"),
+		Workers: 1, Quiet: true, SkipHistory: true,
+	}
+	if err := Run(cfg); err == nil {
+		t.Fatal("expected an inaccessible search path to return an error")
+	}
+}
+
 func TestRunRespectsMaxResults(t *testing.T) {
 	dir := t.TempDir()
 	content := strings.Repeat("needle here\n", 10)
@@ -305,7 +330,7 @@ func TestBinaryFileSkip(t *testing.T) {
 	dir := t.TempDir()
 	txtPath := filepath.Join(dir, "text.txt")
 	binPath := filepath.Join(dir, "bin.dat")
-	
+
 	os.WriteFile(txtPath, []byte("valid target here\n"), 0644)
 	os.WriteFile(binPath, []byte("target \x00 some binary data\n"), 0644)
 
@@ -345,7 +370,7 @@ func TestStdinSearch(t *testing.T) {
 	dir := t.TempDir()
 	stdinFile := filepath.Join(dir, "stdin_mock.txt")
 	os.WriteFile(stdinFile, []byte("stdin target\n"), 0644)
-	
+
 	f, err := os.Open(stdinFile)
 	if err != nil {
 		t.Fatal(err)

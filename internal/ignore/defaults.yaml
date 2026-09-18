@@ -8,6 +8,7 @@ dirs:
   - ".idea"
   - ".vscode"
   - ".cache"
+  - ".scope"
 
 extensions:
   - ".exe"

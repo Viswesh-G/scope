@@ -146,8 +146,8 @@ func runSearch(cfg Config) {
 		Recursive:       true,
 		Workers:         cfg.Workers,
 		IgnoreCase:      cfg.IgnoreCase,
-		Quiet:           true,    // suppress the metrics table
-		SkipHistory:     true,    // watch runs don't pollute history
+		Quiet:           true, // suppress the metrics table
+		SkipHistory:     true, // watch runs don't pollute history
 	}
 	if err := search.Run(scfg); err != nil {
 		output.PrintError(err)

@@ -6,9 +6,10 @@
 // No CGO, no external tools needed.
 //
 // Examples:
-//   scp ast --type func --name "handle*"   → finds all functions starting with "handle"
-//   scp ast --type struct                  → lists every struct in the codebase
-//   scp ast --type interface --name "*er"  → finds all interface types ending in "er"
+//
+//	scp ast --type func --name "handle*"   → finds all functions starting with "handle"
+//	scp ast --type struct                  → lists every struct in the codebase
+//	scp ast --type interface --name "*er"  → finds all interface types ending in "er"
 package cmd
 
 import (

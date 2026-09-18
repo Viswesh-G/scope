@@ -7,12 +7,15 @@
 package tui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Viswesh-G/scope/internal/search"
@@ -27,19 +30,46 @@ const (
 	tabHelp
 )
 
+type resultMode int
+
+const (
+	modeMatches resultMode = iota
+	modeCount
+	modeHotspots
+)
+
+func (m resultMode) String() string {
+	switch m {
+	case modeCount:
+		return "count"
+	case modeHotspots:
+		return "hotspots"
+	default:
+		return "matches"
+	}
+}
+
+func nextResultMode(m resultMode) resultMode {
+	return (m + 1) % 3
+}
+
 // model holds all the state for our terminal application.
 type model struct {
 	activeTab int
 
 	// Search input state
-	queryInput string
-	pathInput  string
-	flagsInput string
-	inputFocus int // 0 = query, 1 = path, 2 = flags
+	queryInput   string
+	pathInput    string
+	contextInput string
+	flagsInput   string
+	inputFocus   int // 0 = query, 1 = path, 2 = context, 3 = flags
+	ignoreCase   bool
+	resultMode   resultMode
 
 	// Results state
 	isSearching bool
 	matches     []search.JSONMatch
+	hotspots    []hotspot
 	scrollPos   int
 
 	// Status message for the bottom bar
@@ -48,6 +78,11 @@ type model struct {
 	// Terminal dimensions (updated dynamically on resize)
 	width  int
 	height int
+}
+
+type hotspot struct {
+	file    string
+	matches int
 }
 
 // searchResultMsg is the message we send back to the Update function
@@ -70,13 +105,15 @@ func InitialModel(matches []search.JSONMatch) model {
 	}
 
 	return model{
-		activeTab:  activeTab,
-		queryInput: "",
-		pathInput:  ".",
-		flagsInput: "",
-		inputFocus: 0,
-		statusMsg:  statusMsg,
-		matches:    matches,
+		activeTab:    activeTab,
+		queryInput:   "",
+		pathInput:    ".",
+		contextInput: "0",
+		flagsInput:   "",
+		inputFocus:   0,
+		resultMode:   modeMatches,
+		statusMsg:    statusMsg,
+		matches:      matches,
 	}
 }
 
@@ -103,9 +140,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Error: %v", msg.err)
 		} else {
 			m.matches = msg.matches
+			m.hotspots = buildHotspots(msg.matches)
 			m.activeTab = tabResults // automatically switch to results tab
 			m.scrollPos = 0
-			m.statusMsg = fmt.Sprintf("Found %d matches.", len(m.matches))
+			if m.resultMode == modeCount {
+				m.statusMsg = fmt.Sprintf("Found %d matches (count mode).", len(m.matches))
+			} else {
+				m.statusMsg = fmt.Sprintf("Found %d matches.", len(m.matches))
+			}
 		}
 		return m, nil
 
@@ -123,7 +165,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == tabSearch {
 				m.inputFocus--
 				if m.inputFocus < 0 {
-					m.inputFocus = 2
+					m.inputFocus = 3
 				}
 			} else if m.activeTab == tabResults && m.scrollPos > 0 {
 				m.scrollPos--
@@ -132,9 +174,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "down":
 			if m.activeTab == tabSearch {
-				m.inputFocus = (m.inputFocus + 1) % 3
-			} else if m.activeTab == tabResults && m.scrollPos < len(m.matches)-1 {
-				m.scrollPos++
+				m.inputFocus = (m.inputFocus + 1) % 4
+			} else if m.activeTab == tabResults {
+				max := len(m.matches)
+				if m.resultMode == modeHotspots {
+					max = len(m.hotspots)
+				}
+				if m.scrollPos < max-1 {
+					m.scrollPos++
+				}
 			}
 			return m, nil
 
@@ -143,7 +191,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.queryInput != "" {
 					m.isSearching = true
 					m.statusMsg = "Searching..."
-					return m, runSearchCmd(m.queryInput, m.pathInput, m.flagsInput)
+					return m, runSearchCmd(m)
 				}
 				m.statusMsg = "Error: Pattern cannot be empty"
 			}
@@ -154,9 +202,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.queryInput = m.queryInput[:len(m.queryInput)-1]
 				} else if m.inputFocus == 1 && len(m.pathInput) > 0 {
 					m.pathInput = m.pathInput[:len(m.pathInput)-1]
-				} else if m.inputFocus == 2 && len(m.flagsInput) > 0 {
+				} else if m.inputFocus == 2 && len(m.contextInput) > 0 {
+					m.contextInput = m.contextInput[:len(m.contextInput)-1]
+				} else if m.inputFocus == 3 && len(m.flagsInput) > 0 {
 					m.flagsInput = m.flagsInput[:len(m.flagsInput)-1]
 				}
+			}
+
+		case "ctrl+i":
+			if m.activeTab == tabSearch {
+				m.ignoreCase = !m.ignoreCase
+				m.statusMsg = fmt.Sprintf("Case sensitivity: %s.", caseMode(m.ignoreCase))
+			}
+
+		case "ctrl+r":
+			if m.activeTab == tabSearch || m.activeTab == tabResults {
+				m.resultMode = nextResultMode(m.resultMode)
+				m.statusMsg = fmt.Sprintf("Result mode: %s.", m.resultMode)
 			}
 
 		default:
@@ -167,6 +229,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.inputFocus == 1 {
 					m.pathInput += msg.String()
 				} else if m.inputFocus == 2 {
+					if _, err := strconv.Atoi(m.contextInput + msg.String()); err == nil {
+						m.contextInput += msg.String()
+					}
+				} else if m.inputFocus == 3 {
 					m.flagsInput += msg.String()
 				}
 			}
@@ -176,56 +242,117 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func caseMode(ignore bool) string {
+	if ignore {
+		return "insensitive"
+	}
+	return "sensitive"
+}
+
+func buildHotspots(matches []search.JSONMatch) []hotspot {
+	counts := make(map[string]int)
+	for _, match := range matches {
+		counts[match.File]++
+	}
+	result := make([]hotspot, 0, len(counts))
+	for file, count := range counts {
+		result = append(result, hotspot{file: file, matches: count})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].matches == result[j].matches {
+			return result[i].file < result[j].file
+		}
+		return result[i].matches > result[j].matches
+	})
+	return result
+}
+
+func parseFlags(flags string) []string {
+	var current string
+	var inQuote bool
+	var parsed []string
+	for _, r := range flags {
+		if r == '"' || r == '\'' {
+			inQuote = !inQuote
+			continue
+		}
+		if r == ' ' && !inQuote {
+			if current != "" {
+				parsed = append(parsed, current)
+				current = ""
+			}
+		} else {
+			current += string(r)
+		}
+	}
+	if current != "" {
+		parsed = append(parsed, current)
+	}
+	return parsed
+}
+
+func searchArgs(m model) ([]string, error) {
+	args := []string{"search", "-p", m.queryInput, "--path", m.pathInput, "--json", "-q"}
+	if m.ignoreCase {
+		args = append(args, "--ignore-case")
+	}
+	contextInput := m.contextInput
+	if contextInput == "" {
+		contextInput = "0"
+	}
+	context, err := strconv.Atoi(contextInput)
+	if err != nil || context < 0 {
+		return nil, fmt.Errorf("context must be a non-negative number")
+	}
+	if context > 0 {
+		args = append(args, "--context", strconv.Itoa(context))
+	}
+	switch m.resultMode {
+	case modeCount:
+		// Count is calculated from the JSON matches so the pipe remains valid.
+	case modeHotspots:
+		// Hotspots are calculated from the JSON matches in the TUI.
+	}
+	return append(args, parseFlags(m.flagsInput)...), nil
+}
+
 // runSearchCmd spawns a background goroutine that runs the scp binary in JSON mode.
 // We capture the output without suspending the TUI.
-func runSearchCmd(pattern, path, flags string) tea.Cmd {
+func runSearchCmd(m model) tea.Cmd {
 	return func() tea.Msg {
 		exe, err := os.Executable()
 		if err != nil {
 			return searchResultMsg{err: fmt.Errorf("finding binary: %v", err)}
 		}
 
-		args := []string{"search", "-p", pattern, "--path", path, "--json", "-q"}
-		
-		if strings.TrimSpace(flags) != "" {
-			var current string
-			var inQuote bool
-			var parsed []string
-			for _, r := range flags {
-				if r == '"' || r == '\'' {
-					inQuote = !inQuote
-					continue
-				}
-				if r == ' ' && !inQuote {
-					if current != "" {
-						parsed = append(parsed, current)
-						current = ""
-					}
-				} else {
-					current += string(r)
-				}
-			}
-			if current != "" {
-				parsed = append(parsed, current)
-			}
-			args = append(args, parsed...)
+		args, err := searchArgs(m)
+		if err != nil {
+			return searchResultMsg{err: err}
 		}
 
 		c := exec.Command(exe, args...)
-		
-		// Run the command and capture stdout
-		out, err := c.Output()
+
+		// Keep stderr separate: command failures should be shown in the status bar
+		// rather than looking like a successful search with zero results.
+		var stderr bytes.Buffer
+		var out bytes.Buffer
+		c.Stdout = &out
+		c.Stderr = &stderr
+		err = c.Run()
 		if err != nil {
 			// exec.ExitError means the command ran but returned non-zero (which ripgrep clones often do if no matches are found)
 			// But if it's not an ExitError, the command failed to start at all.
 			if _, isExitError := err.(*exec.ExitError); !isExitError {
 				return searchResultMsg{err: fmt.Errorf("execution failed: %v", err)}
 			}
+			if stderr.Len() > 0 {
+				return searchResultMsg{err: fmt.Errorf("%s", strings.TrimSpace(stderr.String()))}
+			}
 		}
 
 		var matches []search.JSONMatch
-		if len(out) > 0 {
-			if err := json.Unmarshal(out, &matches); err != nil {
+		if out.Len() > 0 {
+			if err := json.Unmarshal(out.Bytes(), &matches); err != nil {
 				return searchResultMsg{err: fmt.Errorf("parsing JSON: %v", err)}
 			}
 		}
@@ -295,13 +422,15 @@ func (m model) View() string {
 
 	switch m.activeTab {
 	case tabSearch:
-		// Draw the three input boxes (Pattern, Path, Flags)
+		// Draw the search controls. Advanced CLI flags remain available below.
 		qStyle := styleInputBox
 		pStyle := styleInputBox
+		cStyle := styleInputBox
 		fStyle := styleInputBox
 
 		qCursor := ""
 		pCursor := ""
+		cCursor := ""
 		fCursor := ""
 		if m.inputFocus == 0 {
 			qStyle = styleInputBoxActive
@@ -309,6 +438,9 @@ func (m model) View() string {
 		} else if m.inputFocus == 1 {
 			pStyle = styleInputBoxActive
 			pCursor = "█"
+		} else if m.inputFocus == 2 {
+			cStyle = styleInputBoxActive
+			cCursor = "█"
 		} else {
 			fStyle = styleInputBoxActive
 			fCursor = "█"
@@ -316,13 +448,18 @@ func (m model) View() string {
 
 		qBox := qStyle.Render(fmt.Sprintf("Pattern: %s%s", m.queryInput, qCursor))
 		pBox := pStyle.Render(fmt.Sprintf("Path:    %s%s", m.pathInput, pCursor))
+		cBox := cStyle.Render(fmt.Sprintf("Context: %s%s", m.contextInput, cCursor))
 		fBox := fStyle.Render(fmt.Sprintf("Flags:   %s%s", m.flagsInput, fCursor))
+		options := lipgloss.NewStyle().Foreground(colorDim).Render(
+			fmt.Sprintf("Case: %s   Result mode: %s", caseMode(m.ignoreCase), m.resultMode))
 
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.NewStyle().MarginBottom(1).Render("Enter search criteria:"),
 			qBox,
 			pBox,
+			cBox,
 			fBox,
+			options,
 			lipgloss.NewStyle().MarginTop(1).Foreground(colorDim).Render("Use UP/DOWN to switch fields. Press ENTER to search.\nFlags: Any CLI flags (e.g. -i -C 2 -g *.go)"),
 		)
 
@@ -332,13 +469,36 @@ func (m model) View() string {
 			content = lipgloss.NewStyle().Foreground(colorAccent).Render("Searching... Please wait.")
 		} else if len(m.matches) == 0 {
 			content = lipgloss.NewStyle().Foreground(colorDim).Render("No results to display.")
+		} else if m.resultMode == modeCount {
+			content = lipgloss.NewStyle().Foreground(colorAccent).Render(
+				fmt.Sprintf("Total matches: %d\n\nPress CTRL+R to change result mode.", len(m.matches)))
+		} else if m.resultMode == modeHotspots {
+			var lines []string
+			maxVisible := m.height - 10
+			if maxVisible < 1 {
+				maxVisible = 1
+			}
+			start := m.scrollPos
+			end := start + maxVisible
+			if end > len(m.hotspots) {
+				end = len(m.hotspots)
+			}
+			for _, item := range m.hotspots[start:end] {
+				lines = append(lines, fmt.Sprintf("%s  %d matches",
+					lipgloss.NewStyle().Foreground(colorBlue).Render(item.file), item.matches))
+			}
+			lines = append(lines, "")
+			lines = append(lines, lipgloss.NewStyle().Foreground(colorDim).Render(
+				fmt.Sprintf("Showing %d-%d of %d files ranked by match count (use UP/DOWN to scroll).",
+					start+1, end, len(m.hotspots))))
+			content = lipgloss.JoinVertical(lipgloss.Left, lines...)
 		} else {
 			// We only show the matches that fit on the screen based on the scroll position
 			// A real app would use the bubbletea 'viewport' component for this, but this works nicely for a demo!
 			var lines []string
-			
+
 			// Figure out how many lines we can safely print
-			maxVisible := m.height - 10 
+			maxVisible := m.height - 10
 			if maxVisible < 1 {
 				maxVisible = 1
 			}
@@ -351,7 +511,7 @@ func (m model) View() string {
 
 			for i := start; i < end; i++ {
 				match := m.matches[i]
-				
+
 				// Truncate really long lines so they don't break the layout
 				lineContent := match.Content
 				if len(lineContent) > 80 {
@@ -381,6 +541,8 @@ func (m model) View() string {
 			"TAB       : Switch tabs",
 			"UP/DOWN   : Switch input fields / Scroll results",
 			"ENTER     : Execute search",
+			"CTRL+I    : Toggle case sensitivity",
+			"CTRL+R    : Cycle matches, count, and hotspots",
 			"ESC/CTRL+C: Quit",
 		)
 	}
@@ -412,15 +574,20 @@ func (m model) View() string {
 func StartTUI() error {
 	var initialMatches []search.JSONMatch
 	var input *os.File = os.Stdin
+	pipeStatus := ""
 
 	// Check if data is piped into stdin
 	if stat, err := os.Stdin.Stat(); err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
 		// Read from pipe
 		bytes, err := io.ReadAll(os.Stdin)
-		if err == nil && len(bytes) > 0 {
-			_ = json.Unmarshal(bytes, &initialMatches)
+		if err != nil {
+			pipeStatus = fmt.Sprintf("Error: reading piped JSON: %v", err)
+		} else if len(bytes) > 0 {
+			if err := json.Unmarshal(bytes, &initialMatches); err != nil {
+				pipeStatus = fmt.Sprintf("Error: invalid piped JSON: %v", err)
+			}
 		}
-		
+
 		// Redirect Bubbletea input to the terminal keyboard so the user can still interact
 		var tty string
 		if runtime.GOOS == "windows" {
@@ -434,7 +601,11 @@ func StartTUI() error {
 		}
 	}
 
-	p := tea.NewProgram(InitialModel(initialMatches), tea.WithAltScreen(), tea.WithInput(input))
+	initialModel := InitialModel(initialMatches)
+	if pipeStatus != "" {
+		initialModel.statusMsg = pipeStatus
+	}
+	p := tea.NewProgram(initialModel, tea.WithAltScreen(), tea.WithInput(input))
 	_, err := p.Run()
 	return err
 }

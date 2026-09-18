@@ -25,7 +25,9 @@ Scope is divided into two main areas:
 - `cmd/`: The CLI layer built with Cobra. It parses arguments and passes them to internal packages.
 - `internal/`: The core logic.
   - `search/`: The high-performance concurrent file crawler and regex matcher.
+  - `walk/`: Shared, cancellable filesystem traversal for search and analysis.
   - `metrics/`: Atomic performance counters to track worker efficiency.
+  - `ast/`: Go structural search using the standard library parser.
   - `serve/`: The HTTP server, SSE broadcaster, and Live Dashboard UI.
   - `tui/`: The Bubbletea interactive terminal user interface.
 
@@ -39,3 +41,7 @@ Scope is divided into two main areas:
 ## Benchmarks
 
 If you touch `internal/search`, run `make bench`. SCP is optimized to skip the regex engine for plain-text searches using `strings.Contains`. If your changes cause a performance regression in the literal fast-path, the microbenchmarks will catch it.
+
+The TUI runs the same `search` command as the CLI and keeps JSON output valid for
+pipelines. When adding a TUI control, prefer composing existing CLI flags instead
+of creating a second search implementation.

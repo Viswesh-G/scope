@@ -11,6 +11,7 @@
 package analysis
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -28,6 +29,9 @@ import (
 // RunDupes scans path for files with identical SHA256 hashes and prints
 // any duplicate groups it finds.
 func RunDupes(path string, workers int) error {
+	if workers < 1 {
+		workers = 1
+	}
 	registry := metrics.NewRegistry(workers)
 	totalStart := time.Now()
 
@@ -44,11 +48,12 @@ func RunDupes(path string, workers int) error {
 		Hash string
 	}
 	hashCh := make(chan hashResult, 256)
+	walkErrCh := make(chan error, 1)
 
 	// Stage 1: Walk the filesystem in a goroutine.
 	go func() {
 		start := time.Now()
-		walkFiles(path, true, ig, fileCh, registry)
+		walkErrCh <- walkFiles(context.Background(), path, true, ig, fileCh, registry)
 		registry.WalkDuration = time.Since(start)
 	}()
 
@@ -77,6 +82,9 @@ func RunDupes(path string, workers int) error {
 	hashes := make(map[string][]string) // hash → list of file paths
 	for res := range hashCh {
 		hashes[res.Hash] = append(hashes[res.Hash], res.Path)
+	}
+	if err := <-walkErrCh; err != nil {
+		return fmt.Errorf("walking %q: %w", path, err)
 	}
 
 	// Print any groups with more than one file.

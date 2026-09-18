@@ -6,6 +6,7 @@
 package analysis
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Viswesh-G/scope/internal/ignore"
 	"github.com/Viswesh-G/scope/internal/output"
+	"github.com/Viswesh-G/scope/internal/walk"
 )
 
 // importRe matches Go import statements in two forms:
@@ -35,16 +37,7 @@ func RunDeps(path string) error {
 	// Map from import path (e.g. "fmt") to how many files import it.
 	deps := make(map[string]int)
 
-	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if ignore.ShouldSkipDir(d.Name(), ig) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
+	_, err = walk.Files(context.Background(), path, walk.Options{Recursive: true}, ig, func(p string) error {
 		// Only scan .go source files.
 		if ignore.ShouldSkipFile(p, ig) || filepath.Ext(p) != ".go" {
 			return nil
@@ -52,7 +45,7 @@ func RunDeps(path string) error {
 
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return nil // skip unreadable files
+			return fmt.Errorf("reading %q: %w", p, err)
 		}
 
 		// Find all import statements in this file.
@@ -68,6 +61,9 @@ func RunDeps(path string) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("walking %q: %w", path, err)
+	}
 
 	// Sort by count descending, then alphabetically for ties.
 	type depCount struct {

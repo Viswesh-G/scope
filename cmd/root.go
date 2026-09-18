@@ -19,10 +19,10 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "scp",
-	Short: "A fast, self-profiling grep",
-	Long: `scp (scp) is a fast, concurrent, self-profiling search engine.
-It searches files for regex patterns and shows detailed performance metrics
-(worker stats, throughput, load balance) after every search.
+	Short: "A fast, self-profiling codebase search tool",
+	Long: `scp (Scope) is a fast, local-first codebase intelligence tool.
+It searches files for regex patterns, understands Go declarations, and shows
+useful performance metrics such as throughput, parallelism, and load balance.
 
   scp search -p "TODO"          # search files
   scp tui                       # open the interactive TUI

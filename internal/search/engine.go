@@ -4,6 +4,7 @@ package search
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"github.com/Viswesh-G/scope/internal/metrics"
 	"github.com/Viswesh-G/scope/internal/output"
 	"github.com/Viswesh-G/scope/internal/profiler"
+	"github.com/Viswesh-G/scope/internal/walk"
 )
 
 // JSONMatch is the struct we emit when --json is used.
@@ -32,6 +34,12 @@ type JSONMatch struct {
 }
 
 func Run(cfg Config) error {
+	if cfg.Workers < 1 {
+		cfg.Workers = 1
+	}
+	if cfg.Path == "" {
+		return fmt.Errorf("search path must not be empty")
+	}
 	// if --profile was passed, start collecting CPU samples right away.
 	// the deferred Stop() will flush both cpu.pprof and mem.pprof when Run() returns.
 	if cfg.Profile {
@@ -45,6 +53,8 @@ func Run(cfg Config) error {
 
 	registry := metrics.NewRegistry(cfg.Workers)
 	totalStart := time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// -- literal fast-path --
 	// if the pattern is plain text (no regex metacharacters like . * + etc),
@@ -81,16 +91,19 @@ func Run(cfg Config) error {
 
 	fileCh := make(chan string, cfg.Workers*4)
 	matchCh := make(chan Match, 256)
+	walkErrCh := make(chan error, 1)
+	workerErrCh := make(chan error, cfg.Workers)
 
 	// stage 1: walk the filesystem, send paths into fileCh
 	go func() {
 		start := time.Now()
-		walkFiles(cfg, ig, fileCh, registry)
+		err := walkFiles(ctx, cfg, ig, fileCh, registry)
 		registry.WalkDuration = time.Since(start)
+		walkErrCh <- err
 	}()
 
 	// stage 2: workers pull paths from fileCh, scan files, push matches into matchCh
-	wg := startWorkers(cfg, re, literal, fileCh, matchCh, registry, totalStart)
+	wg := startWorkers(ctx, cfg, re, literal, fileCh, matchCh, workerErrCh, registry, totalStart)
 
 	// close matchCh once all workers are done so the collector knows to stop
 	go func() {
@@ -106,6 +119,10 @@ func Run(cfg Config) error {
 	if cfg.OutputFile != "" {
 		f, err := os.Create(cfg.OutputFile)
 		if err != nil {
+			cancel()
+			for range matchCh {
+			}
+			<-walkErrCh
 			return fmt.Errorf("opening output file: %w", err)
 		}
 		defer f.Close()
@@ -127,6 +144,10 @@ func Run(cfg Config) error {
 	} else {
 		collected := 0
 		for m := range matchCh {
+			if cfg.MaxResults > 0 && collected >= cfg.MaxResults {
+				cancel()
+				continue
+			}
 			if m.GroupSep {
 				if !cfg.JSONOutput {
 					fmt.Fprintln(matchWriter, output.DimColor.Sprint("--"))
@@ -171,15 +192,17 @@ func Run(cfg Config) error {
 			}
 
 			// --max-results: stop printing after N matches but let workers finish
-			if cfg.MaxResults > 0 && collected >= cfg.MaxResults {
-				// drain the rest silently so the pipeline can shut down cleanly
-				go func() {
-					for range matchCh {
-					}
-				}()
-				break
-			}
 		}
+	}
+
+	walkErr := <-walkErrCh
+	if walkErr != nil && walkErr != context.Canceled {
+		return fmt.Errorf("walking %q: %w", cfg.Path, walkErr)
+	}
+	select {
+	case err := <-workerErrCh:
+		return fmt.Errorf("searching files: %w", err)
+	default:
 	}
 
 	registry.TotalDuration = time.Since(totalStart)
@@ -231,52 +254,35 @@ func Run(cfg Config) error {
 
 // -- walker --
 
-func walkFiles(cfg Config, ig *ignore.IgnoreMatcher, fileCh chan<- string, registry *metrics.Registry) {
+func walkFiles(ctx context.Context, cfg Config, ig *ignore.IgnoreMatcher, fileCh chan<- string, registry *metrics.Registry) error {
 	defer close(fileCh)
 
 	// If the path is "-", we read directly from standard input instead of directories
 	if cfg.Path == "-" {
 		atomic.AddInt64(&registry.FilesScanned, 1)
-		fileCh <- "<stdin>"
-		return
-	}
-
-	_ = filepath.WalkDir(cfg.Path, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+		select {
+		case fileCh <- "<stdin>":
+		case <-ctx.Done():
 		}
-
-		if d.IsDir() {
-			atomic.AddInt64(&registry.DirsScanned, 1)
-			if ignore.ShouldSkipDir(d.Name(), ig) {
-				return filepath.SkipDir
-			}
-			if !cfg.Recursive && path != cfg.Path {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if ignore.ShouldSkipFile(path, ig) {
-			atomic.AddInt64(&registry.FilesIgnored, 1)
-			return nil
-		}
-
-		// Apply glob filtering if --glob was specified
-		if len(cfg.Globs) > 0 && !matchesGlobs(path, cfg.Globs) {
-			atomic.AddInt64(&registry.FilesIgnored, 1)
-			return nil
-		}
-
-		atomic.AddInt64(&registry.FilesScanned, 1)
-		fileCh <- path
 		return nil
+	}
+	stats, err := walk.Files(ctx, cfg.Path, walk.Options{Recursive: cfg.Recursive, Globs: cfg.Globs}, ig, func(path string) error {
+		atomic.AddInt64(&registry.FilesScanned, 1)
+		select {
+		case fileCh <- path:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	})
+	atomic.AddInt64(&registry.DirsScanned, stats.DirsScanned)
+	atomic.AddInt64(&registry.FilesIgnored, stats.FilesIgnored)
+	return err
 }
 
 // -- workers --
 
-func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan string, matchCh chan<- Match, registry *metrics.Registry, totalStart time.Time) *sync.WaitGroup {
+func startWorkers(ctx context.Context, cfg Config, re *regexp.Regexp, literal string, fileCh <-chan string, matchCh chan<- Match, workerErrCh chan<- error, registry *metrics.Registry, totalStart time.Time) *sync.WaitGroup {
 	var wg sync.WaitGroup
 
 	for i := 0; i < cfg.Workers; i++ {
@@ -305,53 +311,73 @@ func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan s
 				matchFn = workerRe.MatchString
 			}
 
-			for path := range fileCh {
-				atomic.AddInt64(&workerStats.FilesScanned, 1)
-
-				// Find out exactly when we started processing this file relative to the overall start time
-				fileStart := time.Now()
-				startOffsetNs := fileStart.Sub(totalStart).Nanoseconds()
-
-				// (Binary files are skipped directly in searchFileContents now)
-
-				var bytesScanned int64
-				var matches []Match
-
-				if cfg.FilenameOnly {
-					matches = searchFilename(path, matchFn)
-				} else {
-					bytesScanned, matches = searchFileContents(path, matchFn, cfg.BeforeContext, cfg.AfterContext)
-				}
-
-				elapsed := time.Since(fileStart)
-
-				// We lock the mutex so we can safely add to the slices without data races
-				workerStats.Mu.Lock()
-				workerStats.Files = append(workerStats.Files, path)
-				workerStats.Events = append(workerStats.Events, metrics.WorkerEvent{
-					StartOffsetNs: startOffsetNs,
-					DurationNs:    elapsed.Nanoseconds(),
-				})
-				workerStats.Mu.Unlock()
-
-				// Calculate the actual match count, excluding context lines and separators
-				var actualMatchCount int64
-				for _, m := range matches {
-					if !m.IsContext && !m.GroupSep {
-						actualMatchCount++
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case path, ok := <-fileCh:
+					if !ok {
+						return
 					}
-				}
+					atomic.AddInt64(&workerStats.FilesScanned, 1)
 
-				// all these counters are shared across goroutines,
-				// so we use atomic operations instead of a mutex
-				atomic.AddInt64(&workerStats.BytesScanned, bytesScanned)
-				atomic.AddInt64(&workerStats.WorkTimeNs, elapsed.Nanoseconds())
-				atomic.AddInt64(&registry.SearchTimeNs, elapsed.Nanoseconds())
-				atomic.AddInt64(&registry.MatchesFound, actualMatchCount)
-				atomic.AddInt64(&workerStats.MatchesFound, actualMatchCount)
+					// Find out exactly when we started processing this file relative to the overall start time
+					fileStart := time.Now()
+					startOffsetNs := fileStart.Sub(totalStart).Nanoseconds()
 
-				for _, m := range matches {
-					matchCh <- m
+					// (Binary files are skipped directly in searchFileContents now)
+
+					var bytesScanned int64
+					var matches []Match
+					var scanErr error
+
+					if cfg.FilenameOnly {
+						matches = searchFilename(path, matchFn)
+					} else {
+						bytesScanned, matches, scanErr = searchFileContentsWithError(path, matchFn, cfg.BeforeContext, cfg.AfterContext)
+						if scanErr != nil {
+							select {
+							case workerErrCh <- fmt.Errorf("%s: %w", path, scanErr):
+							case <-ctx.Done():
+							}
+							continue
+						}
+					}
+
+					elapsed := time.Since(fileStart)
+
+					// We lock the mutex so we can safely add to the slices without data races
+					workerStats.Mu.Lock()
+					workerStats.Files = append(workerStats.Files, path)
+					workerStats.Events = append(workerStats.Events, metrics.WorkerEvent{
+						StartOffsetNs: startOffsetNs,
+						DurationNs:    elapsed.Nanoseconds(),
+					})
+					workerStats.Mu.Unlock()
+
+					// Calculate the actual match count, excluding context lines and separators
+					var actualMatchCount int64
+					for _, m := range matches {
+						if !m.IsContext && !m.GroupSep {
+							actualMatchCount++
+						}
+					}
+
+					// all these counters are shared across goroutines,
+					// so we use atomic operations instead of a mutex
+					atomic.AddInt64(&workerStats.BytesScanned, bytesScanned)
+					atomic.AddInt64(&workerStats.WorkTimeNs, elapsed.Nanoseconds())
+					atomic.AddInt64(&registry.SearchTimeNs, elapsed.Nanoseconds())
+					atomic.AddInt64(&registry.MatchesFound, actualMatchCount)
+					atomic.AddInt64(&workerStats.MatchesFound, actualMatchCount)
+
+					for _, m := range matches {
+						select {
+						case matchCh <- m:
+						case <-ctx.Done():
+							return
+						}
+					}
 				}
 			}
 		}()
@@ -363,6 +389,11 @@ func startWorkers(cfg Config, re *regexp.Regexp, literal string, fileCh <-chan s
 // -- file scanning --
 
 func searchFileContents(path string, matchFn func(string) bool, before, after int) (int64, []Match) {
+	bytes, matches, _ := searchFileContentsWithError(path, matchFn, before, after)
+	return bytes, matches
+}
+
+func searchFileContentsWithError(path string, matchFn func(string) bool, before, after int) (int64, []Match, error) {
 	var r io.Reader
 	var size int64
 
@@ -371,7 +402,7 @@ func searchFileContents(path string, matchFn func(string) bool, before, after in
 	} else {
 		file, err := os.Open(path)
 		if err != nil {
-			return 0, nil
+			return 0, nil, nil
 		}
 		defer file.Close()
 
@@ -383,12 +414,12 @@ func searchFileContents(path string, matchFn func(string) bool, before, after in
 		buf := make([]byte, 1024)
 		n, err := file.Read(buf)
 		if err != nil && err != io.EOF {
-			return size, nil
+			return size, nil, err
 		}
 		for i := 0; i < n; i++ {
 			if buf[i] == 0x00 {
 				// is binary, skip
-				return size, nil
+				return size, nil, nil
 			}
 		}
 
@@ -465,7 +496,7 @@ func searchFileContents(path string, matchFn func(string) bool, before, after in
 		lineNum++
 	}
 
-	return size, matches
+	return size, matches, scanner.Err()
 }
 
 func searchFilename(path string, matchFn func(string) bool) []Match {
@@ -506,47 +537,6 @@ func collectHotspots(matchCh <-chan Match) {
 
 // -- helpers --
 
-// matchesGlobs checks if the filename of a path matches any glob patterns
-// supporting standard negative globs (prefixed with "!") and positive patterns.
-func matchesGlobs(path string, globs []string) bool {
-	if len(globs) == 0 {
-		return true
-	}
-	base := filepath.Base(path)
-	hasPositive := false
-	for _, g := range globs {
-		if !strings.HasPrefix(g, "!") {
-			hasPositive = true
-			break
-		}
-	}
-
-	// First verify negative patterns
-	for _, g := range globs {
-		if strings.HasPrefix(g, "!") {
-			pattern := g[1:]
-			if matched, _ := filepath.Match(pattern, base); matched {
-				return false
-			}
-		}
-	}
-
-	// Next, verify positive patterns if they exist
-	if hasPositive {
-		for _, g := range globs {
-			if !strings.HasPrefix(g, "!") {
-				if matched, _ := filepath.Match(g, base); matched {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
-	return true
-}
-
-
 // isLiteralPattern returns true if the string has no regex special characters.
 // trick: regexp.QuoteMeta escapes everything, so if the result equals the input,
 // there was nothing to escape.
@@ -573,7 +563,7 @@ func renderParallelProfile(registry *metrics.Registry) {
 
 	for _, w := range registry.Workers {
 		w.Mu.Lock() // lock while reading the events
-		
+
 		// Create an empty timeline string of spaces
 		timeline := make([]rune, columns)
 		for i := range timeline {
@@ -586,9 +576,15 @@ func renderParallelProfile(registry *metrics.Registry) {
 			endCol := int(float64(ev.StartOffsetNs+ev.DurationNs) / nsPerColumn)
 
 			// bounds check
-			if startCol < 0 { startCol = 0 }
-			if endCol >= columns { endCol = columns - 1 }
-			if startCol >= columns { startCol = columns - 1 }
+			if startCol < 0 {
+				startCol = 0
+			}
+			if endCol >= columns {
+				endCol = columns - 1
+			}
+			if startCol >= columns {
+				startCol = columns - 1
+			}
 
 			for i := startCol; i <= endCol; i++ {
 				timeline[i] = '█' // Use a block character to show activity

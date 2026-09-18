@@ -11,7 +11,8 @@ var tuiCmd = &cobra.Command{
 	Long: `Launch the interactive bubbletea terminal user interface for SCP.
 	
 This interface lets you configure and run searches directly from a terminal dashboard
-without having to remember CLI flags.
+without having to remember every CLI flag. It provides fields for the pattern, path,
+context lines, advanced flags, case sensitivity, and result mode.
 
 You can also pipe JSON results directly into the TUI to view them interactively:
   scp search -p "error" --json | scp tui`,

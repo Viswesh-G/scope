@@ -20,12 +20,12 @@ var (
 	flagNoHistory     bool
 	flagNoConfig      bool
 	flagProfile       bool
-	flagQuiet         bool   // --quiet: skip the big metrics table
-	flagCount         bool   // --count: print only the total match count
-	flagMaxResults    int    // --max-results: stop after N matches
-	flagOutputFile    string // --output: write matches to a file instead of stdout
-	flagHTMLFile      string // --html: write a beautiful HTML report to this file
-	flagJSONOutput    bool   // --json: emit matches as JSON array
+	flagQuiet         bool     // --quiet: skip the big metrics table
+	flagCount         bool     // --count: print only the total match count
+	flagMaxResults    int      // --max-results: stop after N matches
+	flagOutputFile    string   // --output: write matches to a file instead of stdout
+	flagHTMLFile      string   // --html: write a beautiful HTML report to this file
+	flagJSONOutput    bool     // --json: emit matches as JSON array
 	flagBeforeContext int      // -B: lines of leading context
 	flagAfterContext  int      // -A: lines of trailing context
 	flagContext       int      // -C: shorthand for setting both -A and -B to the same value
@@ -91,7 +91,7 @@ func init() {
 	f.BoolVar(&flagNoHistory, "no-history", false, "skip saving to history")
 	f.BoolVar(&flagNoConfig, "no-config", false, "skip loading config file")
 	f.BoolVar(&flagParallelProf, "parallel-profile", false, "print ASCII timeline of parallel workers")
-	
+
 	_ = f.MarkHidden("no-history")
 	_ = f.MarkHidden("no-config")
 	_ = f.MarkHidden("parallel-profile")

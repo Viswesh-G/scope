@@ -1,46 +1,28 @@
-// Shared filesystem walker used by analysis commands (dupes, etc.)
-//
-// Note: search/engine.go has its own similar walker embedded inside Run().
-// I kept them separate because the search walker needs access to the search
-// Config (e.g. cfg.Recursive), and merging them would complicate both.
-// The logic is identical - just different call sites.
+// This small adapter connects the shared walker to analysis metrics and channels.
+// The traversal rules themselves live in internal/walk so search and analysis
+// do not slowly drift apart.
 package analysis
 
 import (
-	"os"
-	"path/filepath"
-	"sync/atomic"
+	"context"
 
 	"github.com/Viswesh-G/scope/internal/ignore"
 	"github.com/Viswesh-G/scope/internal/metrics"
+	"github.com/Viswesh-G/scope/internal/walk"
 )
 
-func walkFiles(searchPath string, recursive bool, ig *ignore.IgnoreMatcher, fileCh chan<- string, registry *metrics.Registry) {
+func walkFiles(ctx context.Context, searchPath string, recursive bool, ig *ignore.IgnoreMatcher, fileCh chan<- string, registry *metrics.Registry) error {
 	defer close(fileCh)
-
-	_ = filepath.WalkDir(searchPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
+	stats, err := walk.Files(ctx, searchPath, walk.Options{Recursive: recursive}, ig, func(path string) error {
+		select {
+		case fileCh <- path:
 			return nil
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-
-		if d.IsDir() {
-			atomic.AddInt64(&registry.DirsScanned, 1)
-			if ignore.ShouldSkipDir(d.Name(), ig) {
-				return filepath.SkipDir
-			}
-			if !recursive && path != searchPath {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if ignore.ShouldSkipFile(path, ig) {
-			atomic.AddInt64(&registry.FilesIgnored, 1)
-			return nil
-		}
-
-		atomic.AddInt64(&registry.FilesScanned, 1)
-		fileCh <- path
-		return nil
 	})
+	registry.DirsScanned += stats.DirsScanned
+	registry.FilesScanned += stats.FilesScanned
+	registry.FilesIgnored += stats.FilesIgnored
+	return err
 }

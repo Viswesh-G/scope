@@ -2,14 +2,15 @@
 package analysis
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/Viswesh-G/scope/internal/ignore"
 	"github.com/Viswesh-G/scope/internal/output"
+	"github.com/Viswesh-G/scope/internal/walk"
 )
 
 // RunExtStats walks path and counts how many files have each file extension.
@@ -23,16 +24,7 @@ func RunExtStats(path string) error {
 	// Map from extension (e.g. ".go") to count.
 	extCounts := make(map[string]int)
 
-	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if ignore.ShouldSkipDir(d.Name(), ig) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
+	_, err = walk.Files(context.Background(), path, walk.Options{Recursive: true}, ig, func(p string) error {
 		if ignore.ShouldSkipFile(p, ig) {
 			return nil
 		}
@@ -45,6 +37,9 @@ func RunExtStats(path string) error {
 		extCounts[ext]++
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("walking %q: %w", path, err)
+	}
 
 	// Sort by count descending, then alphabetically for ties.
 	type extStat struct {

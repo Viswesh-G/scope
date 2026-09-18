@@ -93,7 +93,7 @@ func TestDashboardEndpoint(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("expected status OK, got %v", res.Status)
 	}
-	
+
 	contentType := res.Header.Get("Content-Type")
 	if !strings.Contains(contentType, "text/html") {
 		t.Errorf("expected content type text/html, got %s", contentType)
