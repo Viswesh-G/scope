@@ -2,16 +2,20 @@
 # Usage: make <target>   (e.g. "make test")
 
 # on Windows the binary needs the .exe ending, everywhere else it doesn't
+# Binary executable names for scope and alias scp
 ifeq ($(OS),Windows_NT)
-BINARY := scp.exe
+BINARY := scope.exe
+ALIAS := scp.exe
 else
-BINARY := scp
+BINARY := scope
+ALIAS := scp
 endif
 
 .PHONY: build run test race vet fmt fmt-check check bench cover vuln complete clean install
 
 build:
 	go build -o $(BINARY) .
+	go build -o $(ALIAS) .
 
 run:
 	go run . $(ARGS)
@@ -51,7 +55,7 @@ check: vet fmt-check vuln test
 
 clean:
 	go clean
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(ALIAS) scope scope.exe scp scp.exe
 
 install:
 	go install .

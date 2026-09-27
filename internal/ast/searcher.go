@@ -1,4 +1,4 @@
-// Package ast implements "scp ast": structural search for Go source code.
+// Package ast implements "scope ast": structural search for Go source code.
 //
 // The big idea: instead of searching raw text with a regex, we parse the Go source
 // code into an Abstract Syntax Tree (AST) and search the tree's nodes directly.

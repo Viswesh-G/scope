@@ -1,4 +1,4 @@
-// cmd/watch.go implements "scp watch": continuously watch a directory for file
+// cmd/watch.go implements "scope watch": continuously watch a directory for file
 // changes and re-run the search every time a file is modified.
 //
 // This is the "live grep" experience — you run it in one terminal pane while
@@ -25,9 +25,9 @@ var watchCmd = &cobra.Command{
 Press Ctrl+C to stop watching.
 
 Examples:
-  scp watch -p "TODO"
-  scp watch -p "func main" --path ./cmd -i
-  scp watch -p "error" --workers 4`,
+  scope watch -p "TODO"
+  scope watch -p "func main" --path ./cmd -i
+  scope watch -p "error" --workers 4`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := watch.Config{
 			Pattern:    watchPattern,

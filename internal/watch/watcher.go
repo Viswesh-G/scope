@@ -1,7 +1,7 @@
-// Package watch implements the "scp watch" command.
+// Package watch implements the "scope watch" command.
 //
 // The idea is simple: use the operating system's file-change notification API
-// (via the fsnotify library) to watch a directory tree, then re-run the scp
+// (via the fsnotify library) to watch a directory tree, then re-run the scope
 // search automatically every time a file changes.
 //
 // One tricky part is "debouncing": when you save a file, your editor might

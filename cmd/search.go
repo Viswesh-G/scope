@@ -42,17 +42,17 @@ Searches recursively from the current directory by default, using all CPU cores.
 Respects .scope-ignore and skips binaries, .git, node_modules, etc.
 
 Examples:
-  scp search -p "TODO"
-  scp search -p "func main" --path ./cmd -i
-  scp search -p "github" --hotspots
-  scp search -p "TODO" --count
-  scp search -p "error" --max-results 20
-  scp search -p "TODO" -o matches.txt -q
-  scp search -p "func" -A 2 -B 2
-  scp search -p "func" -C 2
-  scp search -p "TODO" -g "*.go" -g "!*_test.go"
-  scp search -p "func" --json
-  scp search -p "error" --path -`,
+  scope search -p "TODO"
+  scope search -p "func main" --path ./cmd -i
+  scope search -p "github" --hotspots
+  scope search -p "TODO" --count
+  scope search -p "error" --max-results 20
+  scope search -p "TODO" -o matches.txt -q
+  scope search -p "func" -A 2 -B 2
+  scope search -p "func" -C 2
+  scope search -p "TODO" -g "*.go" -g "!*_test.go"
+  scope search -p "func" --json
+  scope search -p "error" --path -`,
 	RunE: runSearch,
 }
 

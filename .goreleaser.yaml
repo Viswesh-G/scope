@@ -6,7 +6,8 @@ before:
     - go mod tidy
 
 builds:
-  - binary: scp
+  - id: scope
+    binary: scope
     env:
       - CGO_ENABLED=0
     goos:

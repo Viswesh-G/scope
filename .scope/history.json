@@ -262,5 +262,13 @@
     "workers": 6,
     "matches": 404,
     "duration_ms": 18.2132
+  },
+  {
+    "timestamp": "2026-09-27T16:02:33+05:30",
+    "pattern": "Metrics",
+    "path": "./internal",
+    "workers": 16,
+    "matches": 1,
+    "duration_ms": 9.2186
   }
 ]

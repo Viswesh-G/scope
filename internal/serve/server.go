@@ -1,4 +1,4 @@
-// Package serve sets up the HTTP server for the scp live dashboard.
+// Package serve sets up the HTTP server for the scope live dashboard.
 //
 // The dashboard is a single HTML page served at "/" that polls for history
 // and receives live updates via Server-Sent Events (SSE).
@@ -89,7 +89,7 @@ func StartServer(port int) error {
 	addr := fmt.Sprintf(":%d", port)
 
 	fmt.Println()
-	output.TitleColor.Println("SCP Live Dashboard [SYS_ONLINE]")
+	output.TitleColor.Println("Scope Live Dashboard [SYS_ONLINE]")
 	output.DimColor.Println("───────────────────────────────")
 	output.SuccessColor.Printf("🚀  http://localhost%s\n", addr)
 	output.DimColor.Println("Press Ctrl+C to stop")
@@ -172,10 +172,10 @@ func handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the scp binary we're currently running as, so we can run it again
+	// Find the scope binary we're currently running as, so we can run it again
 	exe, err := os.Executable()
 	if err != nil {
-		http.Error(w, "Could not find scp executable", http.StatusInternalServerError)
+		http.Error(w, "Could not find scope executable", http.StatusInternalServerError)
 		return
 	}
 

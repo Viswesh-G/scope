@@ -18,19 +18,20 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "scp",
-	Short: "A fast, self-profiling codebase search tool",
-	Long: `scp (Scope) is a fast, local-first codebase intelligence tool.
-It searches files for regex patterns, understands Go declarations, and shows
-useful performance metrics such as throughput, parallelism, and load balance.
+	Use:     "scope",
+	Aliases: []string{"scp"},
+	Short:   "A fast, local-first codebase intelligence and profiling engine",
+	Long: `scope is a fast, local-first codebase intelligence tool.
+It searches files for regex patterns, parses Go AST structure, and displays
+useful performance metrics like throughput, parallelism, and load balance.
 
-  scp search -p "TODO"          # search files
-  scp tui                       # open the interactive TUI
-  scp serve                     # start the live web dashboard
-  scp compare -p "func"         # benchmark against ripgrep
+  scope search -p "TODO"          # search files
+  scope ast --type func           # search Go AST functions
+  scope tui                       # open interactive terminal interface
+  scope serve                     # launch live web dashboard
+  scope compare -p "func"         # benchmark against ripgrep
 
-Customize colors with 'scp config set-color'.
-Control which files are skipped with 'scp ignore'.`,
+You can also run commands using the short alias 'scp'.`,
 
 	// runs before every subcommand - loads config + sets up colors
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

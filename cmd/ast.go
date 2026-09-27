@@ -1,4 +1,4 @@
-// cmd/ast.go is the "scp ast" command: search Go source files by code structure,
+// cmd/ast.go is the "scope ast" command: search Go source files by code structure,
 // not raw text. You can find all functions, structs, interfaces etc. whose names
 // match a glob pattern — something a regex search fundamentally cannot do.
 //
@@ -7,9 +7,9 @@
 //
 // Examples:
 //
-//	scp ast --type func --name "handle*"   → finds all functions starting with "handle"
-//	scp ast --type struct                  → lists every struct in the codebase
-//	scp ast --type interface --name "*er"  → finds all interface types ending in "er"
+//	scope ast --type func --name "handle*"   → finds all functions starting with "handle"
+//	scope ast --type struct                  → lists every struct in the codebase
+//	scope ast --type interface --name "*er"  → finds all interface types ending in "er"
 package cmd
 
 import (
@@ -35,10 +35,10 @@ to look like function names.
 Supported types: func, struct, interface, var, const, type
 
 Examples:
-  scp ast --type func --name "handle*"
-  scp ast --type struct --path ./internal
-  scp ast --type interface --name "*er"
-  scp ast --type func`,
+  scope ast --type func --name "handle*"
+  scope ast --type struct --path ./internal
+  scope ast --type interface --name "*er"
+  scope ast --type func`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := ast.Config{
 			NodeType: astNodeType,

@@ -1,4 +1,4 @@
-// Package tui provides an interactive terminal user interface for SCP.
+// Package tui provides an interactive terminal user interface for scope.
 // We use the Bubbletea framework, which follows the Elm architecture (Model-View-Update).
 //
 // Instead of suspending the TUI and dumping text to the raw terminal, we run
@@ -316,7 +316,7 @@ func searchArgs(m model) ([]string, error) {
 	return append(args, parseFlags(m.flagsInput)...), nil
 }
 
-// runSearchCmd spawns a background goroutine that runs the scp binary in JSON mode.
+// runSearchCmd spawns a background goroutine that runs the scope binary in JSON mode.
 // We capture the output without suspending the TUI.
 func runSearchCmd(m model) tea.Cmd {
 	return func() tea.Msg {
@@ -404,7 +404,7 @@ func (m model) View() string {
 	}
 
 	// 1. Header & Tabs
-	title := styleTitle.Render("SCP Interactive Terminal")
+	title := styleTitle.Render("Scope Interactive Terminal")
 
 	tabStrs := []string{"Search", "Results", "Help"}
 	var renderedTabs []string
@@ -536,7 +536,7 @@ func (m model) View() string {
 
 	case tabHelp:
 		content = lipgloss.JoinVertical(lipgloss.Left,
-			lipgloss.NewStyle().Bold(true).Render("SCP Keybindings"),
+			lipgloss.NewStyle().Bold(true).Render("Scope Keybindings"),
 			"",
 			"TAB       : Switch tabs",
 			"UP/DOWN   : Switch input fields / Scroll results",

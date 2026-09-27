@@ -1,13 +1,13 @@
 // Package analysis provides tools to understand the codebase and search performance.
 //
-// This file (compare.go) implements the `scp compare` command. It runs a head-to-head
-// benchmark between our search engine (scp) and ripgrep (rg), and then computes
+// This file (compare.go) implements the `scope compare` command. It runs a head-to-head
+// benchmark between our search engine (scope) and ripgrep (rg), and then computes
 // statistical metrics to see which one is faster.
 //
 // How the benchmark works:
 //  1. Warmup: Both tools run a few times silently. This loads the files into the
 //     operating system's memory cache, so the first tool doesn't have an unfair disadvantage.
-//  2. Alternating Runs: We run scp, then rg, then rg, then scp. This prevents any
+//  2. Alternating Runs: We run scope, then rg, then rg, then scope. This prevents any
 //     systematic bias from background processes.
 //  3. Statistics: We calculate the median (P50), the 95th percentile (P95), and run
 //     a Mann-Whitney U test to prove if the speed difference is statistically significant!
@@ -27,13 +27,13 @@ import (
 	"github.com/Viswesh-G/scope/internal/output"
 )
 
-// selfBinary returns the path to the currently running scp binary.
+// selfBinary returns the path to the currently running scope binary.
 // Using os.Executable() means compare works whether the user ran
-// 'go run .', './scp', or installed via 'go install'.
+// 'go run .', './scope', or installed via 'go install'.
 func selfBinary() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "scp" // fallback — let the OS find it on PATH
+		return "scope" // fallback — let the OS find it on PATH
 	}
 	return exe
 }
@@ -152,7 +152,7 @@ func Compare(pattern, path string, runs, warmup int) (CompareResult, CompareResu
 		if i%2 == 0 {
 			sr := runCommand(self, scopeArgs...)
 			if sr.Err != nil && !isExitErr(sr.Err) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf("scp failed: %w", sr.Err)
+				return CompareResult{}, CompareResult{}, fmt.Errorf("scope failed: %w", sr.Err)
 			}
 			scopeSamples = append(scopeSamples, sr.Duration)
 
@@ -170,7 +170,7 @@ func Compare(pattern, path string, runs, warmup int) (CompareResult, CompareResu
 
 			sr := runCommand(self, scopeArgs...)
 			if sr.Err != nil && !isExitErr(sr.Err) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf("scp failed: %w", sr.Err)
+				return CompareResult{}, CompareResult{}, fmt.Errorf("scope failed: %w", sr.Err)
 			}
 			scopeSamples = append(scopeSamples, sr.Duration)
 		}
