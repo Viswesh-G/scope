@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Viswesh-G/scope/internal/output"
 )
@@ -24,7 +26,22 @@ const MaxHistory = 1000
 const (
 	ScopeDir    = ".scope"
 	HistoryFile = "history.json"
+
+	// HistoryLock is the name of the little lock file we drop next to the
+	// history so two processes cannot rewrite it at the same time.
+	HistoryLock = "history.lock"
 )
+
+// searchMu guards the read-modify-write steps inside this process. Two
+// goroutines can call Save() at once (for example the watcher and a search
+// running together), and a plain read-then-write would let one of them
+// silently drop the other's record.
+var searchMu sync.Mutex
+
+// lockWait is how long we are willing to wait for another process to finish
+// writing before we decide its lock file was left behind by a crash.
+// It is a variable rather than a constant only so tests can shorten the wait.
+var lockWait = 2 * time.Second
 
 // SearchRecord is one entry in the history file.
 type SearchRecord struct {
@@ -42,23 +59,117 @@ func historyFile() string {
 
 // Save appends a record to history and trims if we're over the limit.
 func Save(record SearchRecord) error {
-	path := historyFile()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	return changeHistory(func(records []SearchRecord) ([]SearchRecord, error) {
+		records = append(records, record)
+		return trimToCap(records), nil
+	})
+}
+
+// trimToCap throws away the oldest records once we go over the limit.
+// We keep the newest ones because recent searches are the useful ones.
+func trimToCap(records []SearchRecord) []SearchRecord {
+	if len(records) <= MaxHistory {
+		return records
+	}
+	return records[len(records)-MaxHistory:]
+}
+
+// changeHistory runs a read-modify-write on the history file with both locks
+// held, then saves whatever the callback returns.
+//
+// We need two locks because the history file is shared by more than one
+// process: `scope watch` and the dashboard both spawn real searches as
+// separate processes, so the in-memory mutex is not enough on its own.
+func changeHistory(change func([]SearchRecord) ([]SearchRecord, error)) error {
+	searchMu.Lock()
+	defer searchMu.Unlock()
+
+	if err := os.MkdirAll(ScopeDir, 0755); err != nil {
 		return err
 	}
 
-	records, _ := Load()
-	records = append(records, record)
+	unlock, err := lockHistory()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
-	if len(records) > MaxHistory {
-		records = records[len(records)-MaxHistory:]
+	records, err := Load()
+	if err != nil {
+		return err
 	}
 
+	records, err = change(records)
+	if err != nil {
+		return err
+	}
+
+	return writeHistory(records)
+}
+
+// lockHistory creates an empty file that only one process can create at a
+// time. os.OpenFile with O_EXCL fails if the file is already there, which is
+// exactly the "somebody else got here first" signal we want.
+//
+// It returns a function that removes the lock, which the caller must always
+// run (normally with defer).
+func lockHistory() (func(), error) {
+	path := filepath.Join(ScopeDir, HistoryLock)
+	deadline := time.Now().Add(lockWait)
+
+	for {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			file.Close()
+			return func() { os.Remove(path) }, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+
+		// Somebody else has the lock. Wait a moment and try again.
+		if time.Now().After(deadline) {
+			// We waited long enough that the holder is probably a process that
+			// was killed mid-write. Delete the stale lock so later runs are not
+			// blocked forever, and tell the caller to try once more.
+			os.Remove(path)
+			return nil, fmt.Errorf("another process left %s behind, removed it, please run the command again", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// writeHistory saves the records to disk.
+//
+// We write to a temporary file first and then rename it over the real one.
+// A rename is atomic on every platform we build for, so a reader (the
+// dashboard, or another scope process) either sees the old file or the new
+// one, never a half-written mess.
+func writeHistory(records []SearchRecord) error {
 	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+
+	final := historyFile()
+	temp, err := os.CreateTemp(ScopeDir, "history-*.json")
+	if err != nil {
+		return err
+	}
+	// If anything goes wrong from here on we would leave a stray temp file
+	// behind, so always clean it up. Removing an already-renamed file is a
+	// harmless no-op.
+	defer os.Remove(temp.Name())
+
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(temp.Name(), final)
 }
 
 // Load reads the history file. Returns an empty slice if it doesn't exist yet.
@@ -310,25 +421,30 @@ func Export(dst string) error {
 }
 
 func Prune(limit int) error {
-	records, err := Load()
-	if err != nil {
-		return err
-	}
-	if len(records) <= limit {
-		return nil
-	}
-
-	records = records[len(records)-limit:]
-	data, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(historyFile(), data, 0644)
+	return changeHistory(func(records []SearchRecord) ([]SearchRecord, error) {
+		if len(records) <= limit {
+			// Nothing to throw away, so hand the same list back untouched.
+			return records, nil
+		}
+		return records[len(records)-limit:], nil
+	})
 }
 
 func Clear() error {
-	err := os.Remove(historyFile())
-	if err != nil && !os.IsNotExist(err) {
+	searchMu.Lock()
+	defer searchMu.Unlock()
+
+	if err := os.MkdirAll(ScopeDir, 0755); err != nil {
+		return err
+	}
+
+	unlock, err := lockHistory()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	if err := os.Remove(historyFile()); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	output.PrintSuccess("History cleared.")

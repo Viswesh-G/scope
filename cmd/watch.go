@@ -30,6 +30,9 @@ Examples:
   scope watch -p "error" --workers 4`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := watch.Config{
+			// Ctrl+C cancels this, so the watcher stops on its own instead of
+			// the process being killed with the debounce timer still pending.
+			Context:    cmd.Context(),
 			Pattern:    watchPattern,
 			Path:       watchPath,
 			Workers:    watchWorkers,

@@ -38,6 +38,25 @@ func TestShouldIgnoreSubstring(t *testing.T) {
 	}
 }
 
+// Windows reports paths with backslashes while patterns are always written
+// with forward slashes, so the matcher has to normalise both sides. This used
+// to be broken, which meant a pattern like "tmp/" silently matched nothing on
+// Windows.
+func TestShouldIgnoreHandlesWindowsSeparators(t *testing.T) {
+	m := &IgnoreMatcher{Patterns: []string{"tmp/"}}
+
+	windowsStyle := filepath.Join("C:", "project", "tmp", "scratch.go")
+	if !m.ShouldIgnore(windowsStyle) {
+		t.Errorf("pattern %q should match the Windows path %q", "tmp/", windowsStyle)
+	}
+
+	// and the matching must not leak over to an unrelated directory
+	other := filepath.Join("C:", "project", "src", "scratch.go")
+	if m.ShouldIgnore(other) {
+		t.Errorf("pattern %q should not match %q", "tmp/", other)
+	}
+}
+
 func TestShouldIgnoreNoMatch(t *testing.T) {
 	m := &IgnoreMatcher{Patterns: []string{"*.log", "tmp/"}}
 	if m.ShouldIgnore("src/main.go") {

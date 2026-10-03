@@ -1,624 +1,661 @@
-// Package analysis provides tools to understand the codebase and search performance.
-//
-// This file (compare.go) implements the `scope compare` command. It runs a head-to-head
-// benchmark between our search engine (scope) and ripgrep (rg), and then computes
-// statistical metrics to see which one is faster.
-//
-// How the benchmark works:
-//  1. Warmup: Both tools run a few times silently. This loads the files into the
-//     operating system's memory cache, so the first tool doesn't have an unfair disadvantage.
-//  2. Alternating Runs: We run scope, then rg, then rg, then scope. This prevents any
-//     systematic bias from background processes.
-//  3. Statistics: We calculate the median (P50), the 95th percentile (P95), and run
-//     a Mann-Whitney U test to prove if the speed difference is statistically significant!
 package analysis
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Viswesh-G/scope/internal/output"
 )
 
-// selfBinary returns the path to the currently running scope binary.
-// Using os.Executable() means compare works whether the user ran
-// 'go run .', './scope', or installed via 'go install'.
+type CompareOptions struct {
+	Pattern string
+	Path    string
+	Runs    int
+	Warmup  int
+	Workers int
+	Globs   []string
+}
+
+type CompareResult struct {
+	Tool        string
+	Version     string
+	MatchCount  int
+	MatchCounts []int
+	Samples     []time.Duration
+	Mean        time.Duration
+	TrimmedMean time.Duration
+	P50         time.Duration
+	P95         time.Duration
+	P99         time.Duration
+	Min         time.Duration
+	Max         time.Duration
+	StdDev      time.Duration
+}
+
+type CompareReport struct {
+	GeneratedAt       time.Time
+	Pattern           string
+	Path              string
+	WorkingDirectory  string
+	Runs              int
+	Warmup            int
+	Workers           int
+	Globs             []string
+	CacheCondition    string
+	GoVersion         string
+	OS                string
+	Architecture      string
+	LogicalCPUs       int
+	CPUModel          string
+	RepositoryCommit  string
+	RepositoryDirty   string
+	RepositoryBytes   int64
+	RepositoryFiles   int64
+	MatchCountsEqual  bool
+	MatchCountsStable bool
+	Scope             CompareResult
+	Ripgrep           CompareResult
+}
+
+type compareArtifact struct {
+	SchemaVersion     int                   `json:"schema_version"`
+	GeneratedAt       time.Time             `json:"generated_at"`
+	Pattern           string                `json:"pattern"`
+	Path              string                `json:"path"`
+	WorkingDirectory  string                `json:"working_directory"`
+	Runs              int                   `json:"runs"`
+	Warmup            int                   `json:"warmup_runs"`
+	Workers           int                   `json:"workers"`
+	Globs             []string              `json:"globs"`
+	CacheCondition    string                `json:"cache_condition"`
+	Environment       compareEnvironment    `json:"environment"`
+	Repository        compareRepository     `json:"repository"`
+	SearchRules       compareSearchRules    `json:"search_rules"`
+	MatchCountsEqual  bool                  `json:"match_counts_equal"`
+	MatchCountsStable bool                  `json:"match_counts_stable"`
+	Scope             compareArtifactResult `json:"scope"`
+	Ripgrep           compareArtifactResult `json:"ripgrep"`
+}
+
+type compareSearchRules struct {
+	Scope       string `json:"scope"`
+	Ripgrep     string `json:"ripgrep"`
+	Limitations string `json:"limitations"`
+}
+
+type compareEnvironment struct {
+	GoVersion        string `json:"go_version"`
+	OS               string `json:"os"`
+	Architecture     string `json:"architecture"`
+	LogicalCPUs      int    `json:"logical_cpus"`
+	CPUModel         string `json:"cpu_model"`
+	RepositoryCommit string `json:"repository_commit"`
+	RepositoryDirty  string `json:"repository_dirty"`
+}
+
+type compareRepository struct {
+	SizeBytes        int64  `json:"size_bytes"`
+	FileCount        int64  `json:"file_count"`
+	MeasurementScope string `json:"measurement_scope"`
+}
+
+type compareArtifactResult struct {
+	Version       string    `json:"version"`
+	MeanMS        float64   `json:"mean_ms"`
+	TrimmedMeanMS float64   `json:"trimmed_mean_10_percent_ms"`
+	P50MS         float64   `json:"p50_ms"`
+	P95MS         float64   `json:"p95_ms"`
+	P99MS         float64   `json:"p99_ms"`
+	MinMS         float64   `json:"min_ms"`
+	MaxMS         float64   `json:"max_ms"`
+	StdDevMS      float64   `json:"stddev_ms"`
+	MatchCount    int       `json:"match_count"`
+	MatchCounts   []int     `json:"match_counts_by_run"`
+	SamplesMS     []float64 `json:"samples_ms"`
+}
+
+type rgEvent struct {
+	Type string `json:"type"`
+}
+
+type commandResult struct {
+	Duration   time.Duration
+	MatchCount int
+}
+
 func selfBinary() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "scope" // fallback — let the OS find it on PATH
+		return "scope"
 	}
 	return exe
 }
 
-// CompareResult holds benchmark results for one tool (scope or ripgrep).
-type CompareResult struct {
-	Tool         string        // tool name for display ("Scope" or "Ripgrep")
-	Duration     time.Duration // arithmetic mean of all timed runs
-	BytesScanned int64         // total bytes in the search directory
-	FileCount    int64         // total files in the search directory
+func Compare(options CompareOptions) (CompareReport, error) {
+	if options.Pattern == "" {
+		return CompareReport{}, fmt.Errorf("pattern must not be empty")
+	}
+	if options.Path == "" {
+		return CompareReport{}, fmt.Errorf("path must not be empty")
+	}
+	if options.Runs < 1 {
+		return CompareReport{}, fmt.Errorf("runs must be at least 1")
+	}
+	if options.Warmup < 0 {
+		return CompareReport{}, fmt.Errorf("warmup must not be negative")
+	}
+	if options.Workers < 1 {
+		return CompareReport{}, fmt.Errorf("workers must be at least 1")
+	}
 
-	// Raw samples from each timed run (after warmup rounds are discarded).
-	Samples []time.Duration
+	repoBytes, repoFiles, err := repositorySize(options.Path)
+	if err != nil {
+		return CompareReport{}, err
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return CompareReport{}, fmt.Errorf("getting working directory: %w", err)
+	}
 
-	// Derived statistics computed from Samples.
-	P50         time.Duration // 50th percentile (median)
-	P95         time.Duration // 95th percentile
-	P99         time.Duration // 99th percentile
-	Min         time.Duration // fastest single run
-	Max         time.Duration // slowest single run
-	StdDev      time.Duration // standard deviation (spread of results)
-	TrimmedMean time.Duration // mean after dropping top+bottom 10% (outlier-resistant)
+	scope := selfBinary()
+	scopeVersion, err := commandVersion(scope, "version")
+	if err != nil {
+		return CompareReport{}, fmt.Errorf("getting scope version: %w", err)
+	}
+	rgVersion, err := commandVersion("rg", "--version")
+	if err != nil {
+		return CompareReport{}, fmt.Errorf("getting ripgrep version: %w", err)
+	}
+
+	scopeArgs := []string{
+		"search", "-p", options.Pattern, "--path", options.Path,
+		"--workers", strconv.Itoa(options.Workers),
+		"--no-history", "--no-config", "--quiet", "--json",
+	}
+	rgArgs := []string{
+		"--json", "--threads", strconv.Itoa(options.Workers),
+	}
+	for _, glob := range options.Globs {
+		scopeArgs = append(scopeArgs, "--glob", glob)
+		rgArgs = append(rgArgs, "--glob", glob)
+	}
+	rgArgs = append(rgArgs, options.Pattern, options.Path)
+
+	for i := 0; i < options.Warmup; i++ {
+		first, second := scope, "rg"
+		firstArgs, secondArgs := scopeArgs, rgArgs
+		if i%2 == 1 {
+			first, second = second, first
+			firstArgs, secondArgs = secondArgs, firstArgs
+		}
+		if _, err := runSearch(first, firstArgs...); err != nil {
+			return CompareReport{}, fmt.Errorf("%s warmup failed: %w", first, err)
+		}
+		if _, err := runSearch(second, secondArgs...); err != nil {
+			return CompareReport{}, fmt.Errorf("%s warmup failed: %w", second, err)
+		}
+	}
+
+	scopeResult := CompareResult{
+		Tool:        "Scope",
+		Version:     scopeVersion,
+		Samples:     make([]time.Duration, 0, options.Runs),
+		MatchCounts: make([]int, 0, options.Runs),
+	}
+	rgResult := CompareResult{
+		Tool:        "Ripgrep",
+		Version:     rgVersion,
+		Samples:     make([]time.Duration, 0, options.Runs),
+		MatchCounts: make([]int, 0, options.Runs),
+	}
+
+	for i := 0; i < options.Runs; i++ {
+		first, second := scope, "rg"
+		firstArgs, secondArgs := scopeArgs, rgArgs
+		if i%2 == 1 {
+			first, second = second, first
+			firstArgs, secondArgs = secondArgs, firstArgs
+		}
+		firstResult, err := runSearch(first, firstArgs...)
+		if err != nil {
+			return CompareReport{}, fmt.Errorf("%s benchmark run failed: %w", first, err)
+		}
+		secondResult, err := runSearch(second, secondArgs...)
+		if err != nil {
+			return CompareReport{}, fmt.Errorf("%s benchmark run failed: %w", second, err)
+		}
+
+		if first == scope {
+			addSample(&scopeResult, firstResult)
+			addSample(&rgResult, secondResult)
+		} else {
+			addSample(&rgResult, firstResult)
+			addSample(&scopeResult, secondResult)
+		}
+	}
+
+	finishResult(&scopeResult)
+	finishResult(&rgResult)
+
+	revision, modified := buildRevision()
+	cacheCondition := "Uncontrolled cache state: warmup disabled."
+	if options.Warmup > 0 {
+		cacheCondition = "Best-effort warm OS file cache: both tools run during alternating warmups; this is not a cold-cache measurement."
+	}
+
+	return CompareReport{
+		GeneratedAt:       time.Now().UTC(),
+		Pattern:           options.Pattern,
+		Path:              options.Path,
+		WorkingDirectory:  workingDirectory,
+		Runs:              options.Runs,
+		Warmup:            options.Warmup,
+		Workers:           options.Workers,
+		Globs:             append([]string(nil), options.Globs...),
+		CacheCondition:    cacheCondition,
+		GoVersion:         runtime.Version(),
+		OS:                runtime.GOOS,
+		Architecture:      runtime.GOARCH,
+		LogicalCPUs:       runtime.NumCPU(),
+		CPUModel:          "not collected by the Go runtime",
+		RepositoryCommit:  revision,
+		RepositoryDirty:   modified,
+		RepositoryBytes:   repoBytes,
+		RepositoryFiles:   repoFiles,
+		MatchCountsEqual:  countsEqual(scopeResult.MatchCounts, rgResult.MatchCounts),
+		MatchCountsStable: countsStable(scopeResult.MatchCounts) && countsStable(rgResult.MatchCounts),
+		Scope:             scopeResult,
+		Ripgrep:           rgResult,
+	}, nil
 }
 
-// RunResult captures the outcome of running one tool once.
-type RunResult struct {
-	Duration  time.Duration // wall-clock time from start to finish
-	FileCount int           // number of non-empty output lines (approximate match count)
-	Err       error         // any error from running the command
+func addSample(result *CompareResult, sample commandResult) {
+	result.Samples = append(result.Samples, sample.Duration)
+	result.MatchCounts = append(result.MatchCounts, sample.MatchCount)
 }
 
-// runCommand executes a command and measures its wall-clock duration.
-// It counts non-empty output lines as a proxy for match count.
-// Exit code 1 from ripgrep means "no matches" — that's not an error for us.
-func runCommand(name string, args ...string) RunResult {
+func finishResult(result *CompareResult) {
+	if len(result.MatchCounts) > 0 {
+		result.MatchCount = result.MatchCounts[len(result.MatchCounts)-1]
+	}
+	result.Mean = mean(result.Samples)
+	sorted := append([]time.Duration(nil), result.Samples...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	if len(sorted) > 0 {
+		result.TrimmedMean = trimmedMean(sorted, 0.10)
+		result.P50 = percentile(sorted, 50)
+		result.P95 = percentile(sorted, 95)
+		result.P99 = percentile(sorted, 99)
+		result.Min = sorted[0]
+		result.Max = sorted[len(sorted)-1]
+	}
+	result.StdDev = standardDeviation(result.Samples, result.Mean)
+}
+
+func runSearch(name string, args ...string) (commandResult, error) {
 	start := time.Now()
 	cmd := exec.Command(name, args...)
 	out, err := cmd.Output()
-	dur := time.Since(start)
+	duration := time.Since(start)
 
-	fileCount := 0
-	if err == nil || isExitErr(err) {
-		for _, line := range strings.Split(string(out), "\n") {
-			if strings.TrimSpace(line) != "" {
-				fileCount++
-			}
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return commandResult{}, err
+		}
+		if name != "rg" || exitErr.ExitCode() != 1 {
+			return commandResult{}, fmt.Errorf("exited with status %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(exitErr.Stderr)))
 		}
 	}
 
-	return RunResult{Duration: dur, FileCount: fileCount, Err: err}
+	var count int
+	if name == "rg" {
+		var err error
+		count, err = countRipgrepMatches(out)
+		if err != nil {
+			return commandResult{}, err
+		}
+	} else {
+		var err error
+		count, err = countScopeMatches(out)
+		if err != nil {
+			return commandResult{}, err
+		}
+	}
+	return commandResult{Duration: duration, MatchCount: count}, nil
 }
 
-// isExitErr returns true when a command exited with a non-zero exit code.
-// This is distinct from a system error (e.g. binary not found).
-// ripgrep exits with code 1 when it finds no matches — that's expected.
-func isExitErr(err error) bool {
-	if err == nil {
+func countScopeMatches(data []byte) (int, error) {
+	var matches []json.RawMessage
+	if err := json.Unmarshal(data, &matches); err != nil {
+		return 0, fmt.Errorf("parsing scope JSON results: %w", err)
+	}
+	return len(matches), nil
+}
+
+func countRipgrepMatches(data []byte) (int, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	count := 0
+	for {
+		var event rgEvent
+		err := decoder.Decode(&event)
+		if errors.Is(err, io.EOF) {
+			return count, nil
+		}
+		if err != nil {
+			return 0, fmt.Errorf("parsing ripgrep JSON results: %w", err)
+		}
+		if event.Type == "match" {
+			count++
+		}
+	}
+}
+
+func commandVersion(name, arg string) (string, error) {
+	out, err := exec.Command(name, arg).Output()
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	if line == "" {
+		return "", fmt.Errorf("%s returned an empty version", name)
+	}
+	return line, nil
+}
+
+func repositorySize(root string) (int64, int64, error) {
+	var size, files int64
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			size += info.Size()
+			files++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("measuring repository %q: %w", root, err)
+	}
+	return size, files, nil
+}
+
+func buildRevision() (string, string) {
+	revision := os.Getenv("GITHUB_SHA")
+	modified := "unknown"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.modified":
+				modified = setting.Value
+			}
+		}
+	}
+	if revision == "" {
+		revision = "unknown"
+	}
+	return revision, modified
+}
+
+func countsEqual(a, b []int) bool {
+	if len(a) != len(b) {
 		return false
 	}
-	_, ok := err.(*exec.ExitError)
-	return ok
-}
-
-// Compare benchmarks Scope vs ripgrep.
-//
-// Methodology:
-//   - `warmup` throwaway rounds to prime the OS page cache for both tools equally.
-//   - `runs` timed rounds with alternating order (even i → scope first, odd i → rg first)
-//     to cancel first-runner cache advantage.
-//   - Order within each pair is additionally randomised when randomOrder=true.
-func Compare(pattern, path string, runs, warmup int) (CompareResult, CompareResult, error) {
-	bytesScanned, err := DirSize(path)
-	if err != nil {
-		return CompareResult{}, CompareResult{}, err
-	}
-
-	fileCount, err := FileCount(path)
-	if err != nil {
-		return CompareResult{}, CompareResult{}, err
-	}
-
-	self := selfBinary()
-	scopeArgs := []string{"search", "-p", pattern, "--path", path, "--no-history", "--no-config"}
-	rgArgs := []string{pattern, path}
-
-	// ── Warmup (alternating order, discarded) ─────────────────────────────────
-	for i := 0; i < warmup; i++ {
-		if i%2 == 0 {
-			runCommand(self, scopeArgs...)
-			r := runCommand("rg", rgArgs...)
-			if errors.Is(r.Err, exec.ErrNotFound) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf(
-					"ripgrep ('rg') is not installed or not in your PATH",
-				)
-			}
-		} else {
-			r := runCommand("rg", rgArgs...)
-			if errors.Is(r.Err, exec.ErrNotFound) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf(
-					"ripgrep ('rg') is not installed or not in your PATH",
-				)
-			}
-			_ = r
-			runCommand(self, scopeArgs...)
+	for i := range a {
+		if a[i] != b[i] {
+			return false
 		}
 	}
+	return true
+}
 
-	var scopeSamples, rgSamples []time.Duration
-
-	// ── Timed runs (alternating order) ───────────────────────────────────────
-	// Even iterations: scope → rg   (scope runs first, rg gets warm cache)
-	// Odd  iterations: rg → scope   (rg runs first, scope gets warm cache)
-	// Across 20 runs this gives each tool 10 first-runner slots and 10 second-runner
-	// slots, eliminating the systematic ordering bias.
-	for i := 0; i < runs; i++ {
-		if i%2 == 0 {
-			sr := runCommand(self, scopeArgs...)
-			if sr.Err != nil && !isExitErr(sr.Err) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf("scope failed: %w", sr.Err)
-			}
-			scopeSamples = append(scopeSamples, sr.Duration)
-
-			rr := runCommand("rg", rgArgs...)
-			if err := checkRgErr(rr.Err); err != nil {
-				return CompareResult{}, CompareResult{}, err
-			}
-			rgSamples = append(rgSamples, rr.Duration)
-		} else {
-			rr := runCommand("rg", rgArgs...)
-			if err := checkRgErr(rr.Err); err != nil {
-				return CompareResult{}, CompareResult{}, err
-			}
-			rgSamples = append(rgSamples, rr.Duration)
-
-			sr := runCommand(self, scopeArgs...)
-			if sr.Err != nil && !isExitErr(sr.Err) {
-				return CompareResult{}, CompareResult{}, fmt.Errorf("scope failed: %w", sr.Err)
-			}
-			scopeSamples = append(scopeSamples, sr.Duration)
+func countsStable(counts []int) bool {
+	if len(counts) < 2 {
+		return true
+	}
+	for _, count := range counts[1:] {
+		if count != counts[0] {
+			return false
 		}
 	}
-
-	scopeResult := buildResult("Scope", scopeSamples, bytesScanned, fileCount)
-	rgResult := buildResult("Ripgrep", rgSamples, bytesScanned, fileCount)
-
-	return scopeResult, rgResult, nil
+	return true
 }
 
-func checkRgErr(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, exec.ErrNotFound) {
-		return fmt.Errorf("ripgrep ('rg') is not installed or not in your PATH")
-	}
-	if !isExitErr(err) {
-		return fmt.Errorf("ripgrep failed: %w", err)
-	}
-	return nil
-}
-
-func buildResult(tool string, samples []time.Duration, bytes, files int64) CompareResult {
+func mean(samples []time.Duration) time.Duration {
 	if len(samples) == 0 {
-		return CompareResult{Tool: tool, BytesScanned: bytes, FileCount: files}
-	}
-
-	sorted := make([]time.Duration, len(samples))
-	copy(sorted, samples)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	var total time.Duration
-	for _, s := range samples {
-		total += s
-	}
-	avg := total / time.Duration(len(samples))
-
-	return CompareResult{
-		Tool:         tool,
-		Duration:     avg,
-		BytesScanned: bytes,
-		FileCount:    files,
-		Samples:      samples,
-		P50:          percentile(sorted, 50),
-		P95:          percentile(sorted, 95),
-		P99:          percentile(sorted, 99),
-		Min:          sorted[0],
-		Max:          sorted[len(sorted)-1],
-		StdDev:       stdDev(samples, avg),
-		TrimmedMean:  trimmedMean(sorted, 0.10),
-	}
-}
-
-// trimmedMean drops the bottom and top `frac` fraction of sorted samples
-// and averages the remainder. frac=0.10 drops the lowest 10% and highest 10%.
-func trimmedMean(sorted []time.Duration, frac float64) time.Duration {
-	n := len(sorted)
-	if n == 0 {
 		return 0
 	}
-	drop := int(math.Round(float64(n) * frac))
-	trimmed := sorted[drop : n-drop]
-	if len(trimmed) == 0 {
-		return sorted[n/2]
+	var total time.Duration
+	for _, sample := range samples {
+		total += sample
 	}
-	var sum time.Duration
-	for _, s := range trimmed {
-		sum += s
-	}
-	return sum / time.Duration(len(trimmed))
+	return total / time.Duration(len(samples))
 }
 
 func percentile(sorted []time.Duration, p int) time.Duration {
 	if len(sorted) == 0 {
 		return 0
 	}
-	idx := int(math.Ceil(float64(p)/100.0*float64(len(sorted)))) - 1
-	if idx < 0 {
-		idx = 0
+	index := int(math.Ceil(float64(p)/100*float64(len(sorted)))) - 1
+	if index < 0 {
+		index = 0
 	}
-	if idx >= len(sorted) {
-		idx = len(sorted) - 1
+	if index >= len(sorted) {
+		index = len(sorted) - 1
 	}
-	return sorted[idx]
+	return sorted[index]
 }
 
-func stdDev(samples []time.Duration, avg time.Duration) time.Duration {
+func standardDeviation(samples []time.Duration, average time.Duration) time.Duration {
 	if len(samples) < 2 {
 		return 0
 	}
 	var variance float64
-	for _, s := range samples {
-		diff := float64(s - avg)
-		variance += diff * diff
+	for _, sample := range samples {
+		difference := float64(sample - average)
+		variance += difference * difference
 	}
 	variance /= float64(len(samples) - 1)
 	return time.Duration(math.Sqrt(variance))
 }
 
-// outlierRatio = Max / P50. Values close to 1.0x mean no bad outliers.
-// A ratio of 1.45x means the worst run took 45% longer than the median.
-func outlierRatio(max, p50 time.Duration) float64 {
-	if p50 <= 0 {
+func trimmedMean(sorted []time.Duration, fraction float64) time.Duration {
+	if len(sorted) == 0 {
 		return 0
 	}
-	return float64(max) / float64(p50)
+	drop := int(math.Round(float64(len(sorted)) * fraction))
+	if drop*2 >= len(sorted) {
+		return percentile(sorted, 50)
+	}
+	return mean(sorted[drop : len(sorted)-drop])
 }
 
-// mannWhitneyU returns the U statistic and a two-tailed p-value approximation
-// (normal approximation, valid for n > 8). Used to determine whether the
-// latency difference between the two tools is statistically significant.
-func mannWhitneyU(a, b []time.Duration) (float64, float64) {
-	n1, n2 := len(a), len(b)
-	if n1 == 0 || n2 == 0 {
-		return 0, 1
+func mannWhitneyPValue(a, b []time.Duration) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 1
 	}
-
-	// Count: for each element in a, how many elements in b are smaller?
-	var u1 float64
-	for _, x := range a {
-		for _, y := range b {
-			if x > y {
-				u1++
-			} else if x == y {
-				u1 += 0.5
+	var u float64
+	for _, left := range a {
+		for _, right := range b {
+			switch {
+			case left > right:
+				u++
+			case left == right:
+				u += 0.5
 			}
 		}
 	}
-	u2 := float64(n1*n2) - u1
-	u := math.Min(u1, u2)
-
-	// Normal approximation
-	mu := float64(n1*n2) / 2
-	sigma := math.Sqrt(float64(n1*n2*(n1+n2+1)) / 12)
+	product := float64(len(a) * len(b))
+	mu := product / 2
+	sigma := math.Sqrt(product * float64(len(a)+len(b)+1) / 12)
 	if sigma == 0 {
-		return u, 1
+		return 1
 	}
+	u = math.Min(u, product-u)
 	z := (u - mu) / sigma
-	// Two-tailed p-value via complementary error function
-	p := math.Erfc(math.Abs(z) / math.Sqrt2)
-	return u, p
+	return math.Erfc(math.Abs(z) / math.Sqrt2)
 }
 
-// PrintCompare renders the full benchmark report.
-func PrintCompare(runs, warmup int, scopeResult, rgResult CompareResult) {
-	output.PrintHeader("Benchmark", "Scope vs Ripgrep")
+func SaveCompareReport(path string, report CompareReport) error {
+	if path == "" {
+		return fmt.Errorf("benchmark report path must not be empty")
+	}
+	artifact := compareArtifact{
+		SchemaVersion:    1,
+		GeneratedAt:      report.GeneratedAt,
+		Pattern:          report.Pattern,
+		Path:             report.Path,
+		WorkingDirectory: report.WorkingDirectory,
+		Runs:             report.Runs,
+		Warmup:           report.Warmup,
+		Workers:          report.Workers,
+		Globs:            report.Globs,
+		CacheCondition:   report.CacheCondition,
+		Environment: compareEnvironment{
+			GoVersion:        report.GoVersion,
+			OS:               report.OS,
+			Architecture:     report.Architecture,
+			LogicalCPUs:      report.LogicalCPUs,
+			CPUModel:         report.CPUModel,
+			RepositoryCommit: report.RepositoryCommit,
+			RepositoryDirty:  report.RepositoryDirty,
+		},
+		Repository: compareRepository{
+			SizeBytes:        report.RepositoryBytes,
+			FileCount:        report.RepositoryFiles,
+			MeasurementScope: "all regular files below the path, including files ignored by either search tool",
+		},
+		SearchRules: compareSearchRules{
+			Scope:       "Scope built-in ignored directories/extensions and .scope-ignore rules",
+			Ripgrep:     "ripgrep default ignore files, gitignore rules, hidden-file behavior, and binary handling",
+			Limitations: "Glob and regular-expression behavior can differ between tools, and their default ignore rules are not equivalent.",
+		},
+		MatchCountsEqual:  report.MatchCountsEqual,
+		MatchCountsStable: report.MatchCountsStable,
+		Scope:             artifactResult(report.Scope),
+		Ripgrep:           artifactResult(report.Ripgrep),
+	}
+	data, err := json.MarshalIndent(artifact, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding benchmark report: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("creating report directory: %w", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		return fmt.Errorf("writing benchmark report: %w", err)
+	}
+	return nil
+}
 
-	// ── Methodology note ─────────────────────────────────────────────────────
-	output.PrintKeyValue("Warmup runs", fmt.Sprintf("%d (discarded, alternating order)", warmup))
-	output.PrintKeyValue("Timed runs", fmt.Sprintf("%d (alternating order — bias-cancelled)", runs))
-	output.PrintKeyValue("Files on disk", fmt.Sprintf("%d", scopeResult.FileCount))
-	output.PrintKeyValue("Data size", humanBytes(scopeResult.BytesScanned))
-	output.PrintKeyValue("Note", "Measures end-to-end CLI latency (startup + search + exit)")
+func artifactResult(result CompareResult) compareArtifactResult {
+	samples := make([]float64, len(result.Samples))
+	for i, sample := range result.Samples {
+		samples[i] = milliseconds(sample)
+	}
+	return compareArtifactResult{
+		Version:       result.Version,
+		MeanMS:        milliseconds(result.Mean),
+		TrimmedMeanMS: milliseconds(result.TrimmedMean),
+		P50MS:         milliseconds(result.P50),
+		P95MS:         milliseconds(result.P95),
+		P99MS:         milliseconds(result.P99),
+		MinMS:         milliseconds(result.Min),
+		MaxMS:         milliseconds(result.Max),
+		StdDevMS:      milliseconds(result.StdDev),
+		MatchCount:    result.MatchCount,
+		MatchCounts:   result.MatchCounts,
+		SamplesMS:     samples,
+	}
+}
+
+func milliseconds(duration time.Duration) float64 {
+	return float64(duration) / float64(time.Millisecond)
+}
+
+func PrintCompare(report CompareReport) {
+	output.PrintHeader("Benchmark", "Scope vs Ripgrep")
+	output.PrintKeyValue("Pattern", report.Pattern)
+	output.PrintKeyValue("Path", report.Path)
+	output.PrintKeyValue("Working directory", report.WorkingDirectory)
+	output.PrintKeyValue("Workers", strconv.Itoa(report.Workers))
+	output.PrintKeyValue("Timed runs", strconv.Itoa(report.Runs))
+	output.PrintKeyValue("Warmup runs", strconv.Itoa(report.Warmup))
+	output.PrintKeyValue("Cache", report.CacheCondition)
+	output.PrintKeyValue("Environment", fmt.Sprintf("%s/%s, %d logical CPUs", report.OS, report.Architecture, report.LogicalCPUs))
+	output.PrintKeyValue("Go version", report.GoVersion)
+	output.PrintKeyValue("Repository revision", report.RepositoryCommit)
+	output.PrintKeyValue("Repository state", report.RepositoryDirty)
+	output.PrintKeyValue("Repository size", fmt.Sprintf("%s across %d files (including ignored files)", humanBytes(report.RepositoryBytes), report.RepositoryFiles))
+	output.PrintKeyValue("Scope", report.Scope.Version)
+	output.PrintKeyValue("Ripgrep", report.Ripgrep.Version)
+	if len(report.Globs) > 0 {
+		output.PrintKeyValue("Globs", strings.Join(report.Globs, ", "))
+	}
 	fmt.Println()
 
-	// ── Latency summary ───────────────────────────────────────────────────────
-	output.PrintSection("Latency (ms)")
+	output.PrintSection("Search policy and result counts")
+	output.PrintKeyValue("Scope ignores", "built-in directories/extensions and .scope-ignore")
+	output.PrintKeyValue("Ripgrep ignores", "ripgrep defaults, including gitignore rules and hidden files")
+	output.PrintKeyValue("Pattern behavior", "regular-expression and glob syntax can differ between tools")
+	output.PrintKeyValue("Ignore behavior", "default ignore rules are not equivalent")
+	output.PrintKeyValue("Match count parity", fmt.Sprintf("scope %d, ripgrep %d", report.Scope.MatchCount, report.Ripgrep.MatchCount))
+	if !report.MatchCountsEqual || !report.MatchCountsStable {
+		output.WarningColor.Println("Match counts differed or changed between runs; timing results are not a like-for-like comparison.")
+	}
+	fmt.Println()
+
+	output.PrintSection("End-to-end CLI latency (ms)")
 	output.PrintTable(
-		[]string{"Tool", "Mean", "Trimmed Mean", "P50", "P95", "P99", "Min", "Max", "StdDev"},
+		[]string{"Tool", "Mean", "Trimmed", "P50", "P95", "P99", "Min", "Max", "StdDev"},
 		[][]string{
-			{
-				scopeResult.Tool,
-				fmtMs(scopeResult.Duration),
-				fmtMs(scopeResult.TrimmedMean),
-				fmtMs(scopeResult.P50),
-				fmtMs(scopeResult.P95),
-				fmtMs(scopeResult.P99),
-				fmtMs(scopeResult.Min),
-				fmtMs(scopeResult.Max),
-				fmtMs(scopeResult.StdDev),
-			},
-			{
-				rgResult.Tool,
-				fmtMs(rgResult.Duration),
-				fmtMs(rgResult.TrimmedMean),
-				fmtMs(rgResult.P50),
-				fmtMs(rgResult.P95),
-				fmtMs(rgResult.P99),
-				fmtMs(rgResult.Min),
-				fmtMs(rgResult.Max),
-				fmtMs(rgResult.StdDev),
-			},
+			{report.Scope.Tool, fmtMs(report.Scope.Mean), fmtMs(report.Scope.TrimmedMean), fmtMs(report.Scope.P50), fmtMs(report.Scope.P95), fmtMs(report.Scope.P99), fmtMs(report.Scope.Min), fmtMs(report.Scope.Max), fmtMs(report.Scope.StdDev)},
+			{report.Ripgrep.Tool, fmtMs(report.Ripgrep.Mean), fmtMs(report.Ripgrep.TrimmedMean), fmtMs(report.Ripgrep.P50), fmtMs(report.Ripgrep.P95), fmtMs(report.Ripgrep.P99), fmtMs(report.Ripgrep.Min), fmtMs(report.Ripgrep.Max), fmtMs(report.Ripgrep.StdDev)},
 		},
 		[]string{"left", "right", "right", "right", "right", "right", "right", "right", "right"},
 	)
 	fmt.Println()
-
-	// ── Throughput ────────────────────────────────────────────────────────────
-	output.PrintSection("Throughput")
-	output.PrintTable(
-		[]string{"Tool", "Avg MB/s", "Peak MB/s (best run)"},
-		[][]string{
-			{
-				scopeResult.Tool,
-				fmt.Sprintf("%.1f MB/s", throughputMBs(scopeResult.BytesScanned, scopeResult.Duration)),
-				fmt.Sprintf("%.1f MB/s", throughputMBs(scopeResult.BytesScanned, scopeResult.Min)),
-			},
-			{
-				rgResult.Tool,
-				fmt.Sprintf("%.1f MB/s", throughputMBs(rgResult.BytesScanned, rgResult.Duration)),
-				fmt.Sprintf("%.1f MB/s", throughputMBs(rgResult.BytesScanned, rgResult.Min)),
-			},
-		},
-		[]string{"left", "right", "right"},
-	)
+	output.PrintKeyValue("Approx. Mann-Whitney p-value", fmt.Sprintf("%.4f (exploratory; not a CI gate)", mannWhitneyPValue(report.Scope.Samples, report.Ripgrep.Samples)))
 	fmt.Println()
-
-	// ── Variance / consistency analysis ──────────────────────────────────────
-	output.PrintSection("Consistency (lower is more predictable)")
-	scopeCV := coefficientOfVariation(scopeResult.StdDev, scopeResult.Duration)
-	rgCV := coefficientOfVariation(rgResult.StdDev, rgResult.Duration)
-	scopeOR := outlierRatio(scopeResult.Max, scopeResult.P50)
-	rgOR := outlierRatio(rgResult.Max, rgResult.P50)
-	output.PrintTable(
-		[]string{"Tool", "StdDev", "P95-P50 spread", "CV%", "Outlier ratio (Max/P50)"},
-		[][]string{
-			{
-				scopeResult.Tool,
-				fmtMs(scopeResult.StdDev),
-				fmtMs(scopeResult.P95 - scopeResult.P50),
-				fmt.Sprintf("%.1f%%", scopeCV),
-				fmt.Sprintf("%.2fx", scopeOR),
-			},
-			{
-				rgResult.Tool,
-				fmtMs(rgResult.StdDev),
-				fmtMs(rgResult.P95 - rgResult.P50),
-				fmt.Sprintf("%.1f%%", rgCV),
-				fmt.Sprintf("%.2fx", rgOR),
-			},
-		},
-		[]string{"left", "right", "right", "right", "right"},
-	)
-	fmt.Println()
-
-	// ── Statistical significance ──────────────────────────────────────────────
-	output.PrintSection("Statistical significance (Mann-Whitney U test)")
-	_, pValue := mannWhitneyU(scopeResult.Samples, rgResult.Samples)
-	sigLabel := "NOT significant (p ≥ 0.05) — treat results with caution"
-	if pValue < 0.001 {
-		sigLabel = "Highly significant (p < 0.001)"
-	} else if pValue < 0.01 {
-		sigLabel = fmt.Sprintf("Significant (p ≈ %.3f)", pValue)
-	} else if pValue < 0.05 {
-		sigLabel = fmt.Sprintf("Marginally significant (p ≈ %.3f)", pValue)
-	}
-	output.PrintKeyValue("p-value", fmt.Sprintf("%.4f", pValue))
-	output.PrintKeyValue("Interpretation", sigLabel)
-	fmt.Println()
-
-	// ── Run-by-run distribution ───────────────────────────────────────────────
-	output.PrintSection("Per-run distribution (chronological)")
-	printSparkline("Scope  ", scopeResult.Samples)
-	printSparkline("Ripgrep", rgResult.Samples)
-	fmt.Println()
-
-	// ── Score card ────────────────────────────────────────────────────────────
-	output.PrintSection("Score card")
-	type category struct {
-		name        string
-		scopeWins   bool
-		explanation string
-	}
-
-	// Peak throughput: correctly compare MB/s (higher is better), not raw latency.
-	scopePeakMBs := throughputMBs(scopeResult.BytesScanned, scopeResult.Min)
-	rgPeakMBs := throughputMBs(rgResult.BytesScanned, rgResult.Min)
-
-	// Trimmed mean is a more honest "typical latency" than raw mean because it
-	// discards the top and bottom 10% of runs, making single-outlier spikes
-	// (e.g. Ripgrep's 71ms run) not carry disproportionate weight.
-	categories := []category{
-		{
-			name:      "Mean latency",
-			scopeWins: scopeResult.Duration <= rgResult.Duration,
-			explanation: fmt.Sprintf("%s vs %s",
-				fmtMs(scopeResult.Duration), fmtMs(rgResult.Duration)),
-		},
-		{
-			name:      "Trimmed mean (10%)",
-			scopeWins: scopeResult.TrimmedMean <= rgResult.TrimmedMean,
-			explanation: fmt.Sprintf("%s vs %s",
-				fmtMs(scopeResult.TrimmedMean), fmtMs(rgResult.TrimmedMean)),
-		},
-		{
-			name:      "P95 latency",
-			scopeWins: scopeResult.P95 <= rgResult.P95,
-			explanation: fmt.Sprintf("%s vs %s",
-				fmtMs(scopeResult.P95), fmtMs(rgResult.P95)),
-		},
-		{
-			name:      "P99 latency",
-			scopeWins: scopeResult.P99 <= rgResult.P99,
-			explanation: fmt.Sprintf("%s vs %s",
-				fmtMs(scopeResult.P99), fmtMs(rgResult.P99)),
-		},
-		{
-			name:      "Peak throughput",
-			scopeWins: scopePeakMBs >= rgPeakMBs, // higher MB/s is better
-			explanation: fmt.Sprintf("%.1f MB/s vs %.1f MB/s (best run)",
-				scopePeakMBs, rgPeakMBs),
-		},
-		{
-			name:      "Consistency (CV)",
-			scopeWins: scopeCV <= rgCV,
-			explanation: fmt.Sprintf("%.1f%% vs %.1f%% CV",
-				scopeCV, rgCV),
-		},
-		{
-			name:      "Outlier stability",
-			scopeWins: scopeOR <= rgOR,
-			explanation: fmt.Sprintf("%.2fx vs %.2fx worst-run ratio",
-				scopeOR, rgOR),
-		},
-	}
-
-	scopeScore, rgScore := 0, 0
-	for _, c := range categories {
-		winner := "Ripgrep"
-		if c.scopeWins {
-			winner = "Scope"
-			scopeScore++
-		} else {
-			rgScore++
-		}
-		output.PrintKeyValue(
-			fmt.Sprintf("  %s", c.name),
-			fmt.Sprintf("%-10s  (%s)", winner, c.explanation),
-		)
-	}
-	fmt.Println()
-
-	// ── Overall verdict ───────────────────────────────────────────────────────
-	overallWinner := "Ripgrep"
-	if scopeScore > rgScore {
-		overallWinner = "Scope"
-	} else if scopeScore == rgScore {
-		overallWinner = "Tie"
-	}
-
-	// Use trimmed mean for the speed ratio — more robust than raw mean.
-	trimRatio := float64(scopeResult.TrimmedMean) / float64(rgResult.TrimmedMean)
-	var speedMsg string
-	switch {
-	case trimRatio < 0.95:
-		speedMsg = fmt.Sprintf("Scope is %.2fx faster on this workload (trimmed mean)", 1/trimRatio)
-	case trimRatio > 1.05:
-		speedMsg = fmt.Sprintf("Scope is %.2fx slower on this workload (trimmed mean)", trimRatio)
-	default:
-		speedMsg = "tools are within 5% — effectively tied on this workload"
-	}
-
-	output.PrintKeyValue("Score", fmt.Sprintf("Scope %d – %d Ripgrep", scopeScore, rgScore))
-	output.PrintKeyValue("Verdict", fmt.Sprintf("%s wins  (%s)", overallWinner, speedMsg))
-
-	// Significance caveat
-	if pValue >= 0.05 {
-		output.PrintKeyValue("⚠  Caution", "Result is not statistically significant — run more iterations")
-	}
-	fmt.Println()
+	output.WarningColor.Println("Exploratory measurements only. Cache state, background load, startup overhead, and tool-specific search rules affect results; no CI performance gate is applied.")
 }
 
-// printSparkline renders a compact ASCII bar chart of chronological run durations.
-func printSparkline(label string, samples []time.Duration) {
-	if len(samples) == 0 {
-		return
-	}
-
-	blocks := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
-
-	minD, maxD := samples[0], samples[0]
-	for _, s := range samples {
-		if s < minD {
-			minD = s
-		}
-		if s > maxD {
-			maxD = s
-		}
-	}
-
-	var sb strings.Builder
-	for _, s := range samples {
-		idx := 0
-		if maxD > minD {
-			idx = int(float64(s-minD) / float64(maxD-minD) * float64(len(blocks)-1))
-		}
-		sb.WriteString(blocks[idx])
-	}
-
-	fmt.Printf("  %s  %s  min:%s max:%s\n",
-		label, sb.String(), fmtMs(minD), fmtMs(maxD))
+func fmtMs(duration time.Duration) string {
+	return fmt.Sprintf("%.3f", milliseconds(duration))
 }
 
-func coefficientOfVariation(stddev, avg time.Duration) float64 {
-	if avg <= 0 {
-		return 0
-	}
-	return float64(stddev) / float64(avg) * 100
-}
-
-func fmtMs(d time.Duration) string {
-	return fmt.Sprintf("%.2fms", float64(d.Microseconds())/1000.0)
-}
-
-func humanBytes(b int64) string {
+func humanBytes(size int64) string {
 	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
 	}
 	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
+	for n := size / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
-}
-
-// DirSize returns total bytes of all regular files under path.
-func DirSize(path string) (int64, error) {
-	var total int64
-	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		total += info.Size()
-		return nil
-	})
-	return total, err
-}
-
-// FileCount returns the number of regular files under path.
-func FileCount(path string) (int64, error) {
-	var count int64
-	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		count++
-		return nil
-	})
-	return count, err
-}
-
-func throughputMBs(bytes int64, d time.Duration) float64 {
-	if d <= 0 {
-		return 0
-	}
-	return float64(bytes) / d.Seconds() / 1024 / 1024
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }

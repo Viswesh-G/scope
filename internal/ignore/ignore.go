@@ -115,14 +115,24 @@ func LoadIgnoreFile(path string) (*IgnoreMatcher, error) {
 //  3. substring match       ("vendor/" matches "vendor/pkg/file.go")
 func (m *IgnoreMatcher) ShouldIgnore(path string) bool {
 	base := filepath.Base(path)
+
+	// Patterns are written with forward slashes, because .scope-ignore copies
+	// the style of .gitignore. Windows hands us paths with backslashes though,
+	// so we normalise both sides to forward slashes before comparing.
+	// Without this, a pattern like "build/" would match nothing at all on
+	// Windows while working perfectly on Linux and macOS.
+	slashed := filepath.ToSlash(path)
+
 	for _, pattern := range m.Patterns {
+		pattern = filepath.ToSlash(pattern)
+
 		if base == pattern {
 			return true
 		}
 		if matched, err := filepath.Match(pattern, base); err == nil && matched {
 			return true
 		}
-		if strings.Contains(path, pattern) {
+		if strings.Contains(slashed, pattern) {
 			return true
 		}
 	}

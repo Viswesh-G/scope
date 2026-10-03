@@ -112,6 +112,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := search.Config{
+		// cmd.Context() is cancelled when the user hits Ctrl+C, which lets the
+		// engine stop at the next safe point instead of being killed outright.
+		Context: cmd.Context(),
 		// store the original pattern before the engine prepends (?i)
 		OriginalPattern: flagPattern,
 		Pattern:         flagPattern,

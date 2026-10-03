@@ -180,13 +180,19 @@ scope graph --dot | dot -Tsvg > graph.svg
 ```bash
 scope search -p "func" --profile              # .scope/cpu.pprof + mem.pprof
 scope search -p "func" --parallel-profile    # ASCII worker timeline
-scope compare -p "github" --runs 20 --warmup 3
+scope compare -p "github" --runs 20 --warmup 3 --workers 4 \
+  --save .scope/benchmarks/github.json
 ```
 
 `compare` runs both `scope` and `rg` against the same pattern, alternating who
-goes first to cancel out cache warming, discarding warmup rounds, and reporting
-mean, trimmed mean, percentiles, standard deviation, and a Mann-Whitney U test
-so you get an answer instead of a single noisy timing.
+goes first and discarding warmup rounds. It records tool versions, environment
+and repository metadata, per-run match counts, and raw latency samples in an
+optional JSON file. Warmups only try to prime the OS file cache; they do not
+provide a cold-cache measurement. Scope and ripgrep apply different ignore
+rules, so `compare` displays the policy differences and warns if match counts
+do not agree or are unstable between runs. Regex and glob syntax can differ
+too. Treat timings as exploratory, not as a CI performance gate, unless the
+runner is controlled and thresholds are based on measured noise.
 
 ### 4. Monitor
 

@@ -10,7 +10,11 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/Viswesh-G/scope/internal/config"
 	"github.com/Viswesh-G/scope/internal/output"
@@ -52,7 +56,21 @@ func init() {
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	// Ctrl+C (or a `kill`) cancels this context instead of the process just
+	// being torn down from the outside. Any long running work that watches it
+	// can stop at the next safe point, so we still print results and tidy up
+	// after ourselves instead of leaving half-written files behind.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	rootCmd.SetContext(ctx)
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		// if the user hit Ctrl+C there is nothing to report, they already know
+		if errors.Is(err, context.Canceled) {
+			os.Exit(130)
+		}
+
 		// colors might not be initialized yet if the error happened early
 		if output.ErrorColor == nil {
 			output.InitColors()

@@ -53,7 +53,15 @@ func Run(cfg Config) error {
 
 	registry := metrics.NewRegistry(cfg.Workers)
 	totalStart := time.Now()
-	ctx, cancel := context.WithCancel(context.Background())
+
+	// The caller can hand us a context so Ctrl+C can stop the search early.
+	// Tests and the benchmark harness leave it nil, and they should not be
+	// cancelled from the outside, so we fall back to a plain background one.
+	parent := cfg.Context
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	// -- literal fast-path --
@@ -132,7 +140,7 @@ func Run(cfg Config) error {
 	_ = outFile // used indirectly through matchWriter
 
 	var allMatches []output.HTMLMatch
-	var jsonMatches []JSONMatch
+	jsonMatches := make([]JSONMatch, 0)
 
 	if cfg.Hotspots {
 		collectHotspots(matchCh)
@@ -205,6 +213,15 @@ func Run(cfg Config) error {
 	default:
 	}
 
+	// The caller (Ctrl+C) cancelled us, so be honest about it instead of
+	// printing a metrics table that looks like a normal finished search.
+	// Whatever we did find is still printed below.
+	interrupted := parent.Err() != nil
+	if interrupted {
+		fmt.Fprintln(os.Stderr)
+		output.WarningColor.Println("Search cancelled early — showing what was found so far.")
+	}
+
 	registry.TotalDuration = time.Since(totalStart)
 
 	// --json: dump all collected matches as a JSON array
@@ -247,6 +264,13 @@ func Run(cfg Config) error {
 			Matches:    registry.MatchesFound,
 			DurationMs: registry.TotalDuration.Seconds() * 1000,
 		})
+	}
+
+	// Returning the cancellation error is how the CLI knows to exit quietly
+	// with the "interrupted by user" status code instead of printing a stack
+	// of noise about a context that we caused on purpose.
+	if interrupted {
+		return context.Canceled
 	}
 
 	return nil

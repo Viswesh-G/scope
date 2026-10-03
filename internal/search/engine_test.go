@@ -1,12 +1,17 @@
 package search
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Viswesh-G/scope/internal/analysis"
 	"github.com/Viswesh-G/scope/internal/output"
 )
 
@@ -400,5 +405,162 @@ func TestStdinSearch(t *testing.T) {
 
 	if !strings.Contains(output, "<stdin>") {
 		t.Errorf("expected <stdin> in output, got: %s", output)
+	}
+}
+
+// makeManyFiles fills a temp directory with a lot of small files, so a search
+// has enough work to still be running when we cancel it.
+func makeManyFiles(t *testing.T, count int) string {
+	t.Helper()
+	dir := t.TempDir()
+	content := strings.Repeat("needle on a line\n", 200)
+	for i := 0; i < count; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("dir%02d", i%8), fmt.Sprintf("file%03d.txt", i))
+		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestRunStopsWhenContextIsCancelled(t *testing.T) {
+	// Ctrl+C should end the search early, and Run should report that it was
+	// cancelled rather than pretending everything completed.
+	dir := makeManyFiles(t, 300)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel up front, so the search stops almost immediately
+
+	cfg := Config{
+		Context:     ctx,
+		Pattern:     "needle",
+		Path:        dir,
+		Recursive:   true,
+		Workers:     4,
+		Quiet:       true,
+		SkipHistory: true,
+		OutputFile:  filepath.Join(t.TempDir(), "out.txt"),
+	}
+
+	err := Run(cfg)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run should return context.Canceled after an interrupt, got %v", err)
+	}
+}
+
+func TestRunWithNilContextStillWorks(t *testing.T) {
+	// Tests and the benchmark harness leave Config.Context nil, and that has
+	// to keep working rather than panicking.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		Pattern:     "needle",
+		Path:        dir,
+		Recursive:   true,
+		Workers:     1,
+		Quiet:       true,
+		SkipHistory: true,
+		OutputFile:  filepath.Join(t.TempDir(), "out.txt"),
+	}
+
+	if err := Run(cfg); err != nil {
+		t.Fatalf("Run with no context should succeed, got %v", err)
+	}
+
+	data, err := os.ReadFile(cfg.OutputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "needle") {
+		t.Errorf("expected the match in the output file, got:\n%s", data)
+	}
+}
+
+func TestRunCancelsMidwayAndKeepsEarlyMatches(t *testing.T) {
+	// Cancel from another goroutine while the search is running. Whatever was
+	// found before the cancel should still reach the output file, because
+	// throwing away real results would be worse than stopping early.
+	dir := makeManyFiles(t, 400)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		time.Sleep(15 * time.Millisecond)
+		cancel()
+	}()
+
+	out := filepath.Join(t.TempDir(), "out.txt")
+	cfg := Config{
+		Context:     ctx,
+		Pattern:     "needle",
+		Path:        dir,
+		Recursive:   true,
+		Workers:     2,
+		Quiet:       true,
+		SkipHistory: true,
+		OutputFile:  out,
+	}
+
+	// Either outcome is acceptable: it finished before the cancel landed, or
+	// it stopped early. What must not happen is a hang or a panic.
+	if err := Run(cfg); err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run returned an unexpected error: %v", err)
+	}
+
+	// The output file is created even if the search was cancelled, and it
+	// should contain valid text, not a half-written stream of nothing.
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("output file should exist even for a cancelled search: %v", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line != "" && !strings.Contains(line, "needle on a line") {
+			t.Errorf("output file contains a line that is not a match: %q", line)
+		}
+	}
+}
+
+func TestRunStillRecordsHistoryAfterCancel(t *testing.T) {
+	// We keep the record even though it was cut short, because the user did
+	// run the search and "replay last search" should still work. The stored
+	// numbers describe what was actually found before the cancel, so it is
+	// not misleading.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("needle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cfg := Config{
+		Context:    ctx,
+		Pattern:    "needle",
+		Path:       dir,
+		Recursive:  true,
+		Workers:    1,
+		Quiet:      true,
+		OutputFile: filepath.Join(t.TempDir(), "out.txt"),
+	}
+	// SkipHistory is left off on purpose here.
+	_ = Run(cfg)
+
+	records, err := analysis.Load()
+	if err != nil {
+		t.Fatalf("reading history failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("got %d history records, want 1", len(records))
+	}
+	if records[0].Pattern != "needle" {
+		t.Errorf("history pattern = %q, want %q", records[0].Pattern, "needle")
 	}
 }

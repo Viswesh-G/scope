@@ -9,6 +9,8 @@
 // per-worker stats at the same time (that's the "self-profiling" bit).
 package search
 
+import "context"
+
 // SearchMode lets workers know whether to scan file contents or just filenames.
 type SearchMode int
 
@@ -31,6 +33,10 @@ type Match struct {
 // Config is everything the search engine needs to know.
 // Built from CLI flags in cmd/search.go and passed to Run().
 type Config struct {
+	// Context lets the caller stop a running search (for example when the user
+	// presses Ctrl+C). Leave it nil and the engine just uses a background
+	// context, which is what tests and the benchmark harness want.
+	Context         context.Context
 	OriginalPattern string // the pattern exactly as typed by the user (before (?i) prepend)
 	Pattern         string // the pattern used internally (may have (?i) prepended)
 	Path            string

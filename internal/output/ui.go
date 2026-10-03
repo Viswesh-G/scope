@@ -4,6 +4,7 @@ package output
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -32,7 +33,9 @@ func PrintKeyValue(key, value string) {
 
 func PrintSuccess(msg string) { SuccessColor.Println("✓ " + msg) }
 func PrintWarning(msg string) { WarningColor.Println("⚠ " + msg) }
-func PrintError(err error)    { ErrorColor.Println("✗ Error: " + err.Error()) }
+func PrintError(err error) {
+	fmt.Fprintf(os.Stderr, "%s\n", ErrorColor.Sprint("✗ Error: ")+err.Error())
+}
 func PrintDivider() {
 	DimColor.Println("────────────────────────────────────────────────────────────────────")
 }

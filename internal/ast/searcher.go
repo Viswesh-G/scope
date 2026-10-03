@@ -59,9 +59,11 @@ func Run(cfg Config) error {
 			return nil
 		}
 		if d.IsDir() {
-			// Skip common non-Go directories to keep things fast
+			// Skip common non-Go directories to keep things fast, but never skip
+			// the root directory itself. When the user runs `scope ast` from a repo
+			// root, cfg.Path is usually "." and that value is not a hidden folder.
 			name := d.Name()
-			if strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata" {
+			if path != filepath.Clean(cfg.Path) && (strings.HasPrefix(name, ".") || name == "vendor" || name == "testdata") {
 				return filepath.SkipDir
 			}
 			return nil

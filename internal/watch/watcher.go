@@ -11,6 +11,7 @@
 package watch
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,9 @@ import (
 // Config holds the settings for a watch session.
 // It mirrors the relevant fields from search.Config so the two commands feel consistent.
 type Config struct {
+	// Context stops the watch loop when it is cancelled, so Ctrl+C exits
+	// cleanly instead of being an abrupt kill.
+	Context    context.Context
 	Pattern    string
 	Path       string
 	Workers    int
@@ -39,6 +43,11 @@ const debounceDelay = 300 * time.Millisecond
 // Run starts the watcher loop.
 // It immediately runs the first search, then waits for file changes.
 func Run(cfg Config) error {
+	ctx := cfg.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Create the fsnotify watcher. This asks the OS to send us events when
 	// files change — much more efficient than polling with time.Sleep.
 	watcher, err := fsnotify.NewWatcher()
@@ -60,14 +69,25 @@ func Run(cfg Config) error {
 	fmt.Println()
 
 	// Run the search immediately on startup so the user sees results right away.
-	runSearch(cfg)
+	runSearch(ctx, cfg)
 
 	// The timer is used for debouncing. Every time we get a file event, we
 	// reset this timer. The search only fires when the timer actually expires.
 	var debounce *time.Timer
+	defer func() {
+		// If a search is still waiting out the debounce window when we exit,
+		// stop it, otherwise it would fire after we are already gone.
+		if debounce != nil {
+			debounce.Stop()
+		}
+	}()
 
 	for {
 		select {
+		case <-ctx.Done():
+			// Ctrl+C: stop the debounce timer and leave the loop quietly.
+			return nil
+
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return nil // channel was closed, watcher is done
@@ -94,7 +114,7 @@ func Run(cfg Config) error {
 				// Print a separator so each search run is visually distinct
 				fmt.Println()
 				output.DimColor.Printf("── changed: %s ──\n", filepath.Base(event.Name))
-				runSearch(cfg)
+				runSearch(ctx, cfg)
 			})
 
 		case err, ok := <-watcher.Errors:
@@ -138,8 +158,9 @@ func isRelevantEvent(event fsnotify.Event) bool {
 
 // runSearch builds a search.Config from our watch config and runs it.
 // We use --quiet mode so the metrics table doesn't clutter the watch output.
-func runSearch(cfg Config) {
+func runSearch(ctx context.Context, cfg Config) {
 	scfg := search.Config{
+		Context:         ctx,
 		OriginalPattern: cfg.Pattern,
 		Pattern:         cfg.Pattern,
 		Path:            cfg.Path,

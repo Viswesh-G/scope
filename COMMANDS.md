@@ -206,10 +206,27 @@ Benchmark Scope against ripgrep. Requires `rg` on `PATH`.
 ```bash
 scope compare -p "github"
 scope compare -p "TODO" --runs 50 --warmup 5
+scope compare -p "TODO" --workers 4 -g "*.go" -g "!*_test.go" --save .scope/benchmarks/todo.json
 ```
 
-The report includes mean, trimmed mean, percentiles, standard deviation,
-throughput, a sparkline, and a Mann-Whitney U comparison.
+The report records tool versions, OS and architecture, logical CPU count,
+worker count, repository revision when available in Go build metadata, total
+regular-file count and size below the selected path (including ignored files),
+per-run match counts, and latency samples. The
+optional `--save` flag writes a versioned JSON record with raw per-run samples
+in milliseconds.
+
+`--warmup` alternates both tools to try to warm the operating-system file cache;
+it does not create a cold-cache run. Scope and ripgrep use different default
+ignore rules. Globs are passed to both, but glob and ignore behavior is not
+identical; regular-expression syntax can also differ. The report shows the
+policy differences and warns when counts differ between tools or across runs.
+Matching counts do not prove that both tools returned identical results.
+
+Treat results as exploratory: startup overhead, cache state, background load,
+and tool-specific behavior affect timings. Do not use a benchmark as a CI
+performance gate unless the runner is controlled and the regression threshold
+has been shown to exceed normal measurement noise.
 
 ## Configuration
 
