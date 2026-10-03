@@ -45,7 +45,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       uses: golangci/golangci-lint-action@v8
       with:
-        version: latest
+        version: v2.14.0
 
     - name: Security scan
       run: make vuln

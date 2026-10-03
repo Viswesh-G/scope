@@ -256,14 +256,16 @@ func Run(cfg Config) error {
 	}
 
 	if !cfg.SkipHistory {
-		analysis.Save(analysis.SearchRecord{
+		if err := analysis.Save(analysis.SearchRecord{
 			Timestamp:  time.Now().Format(time.RFC3339),
 			Pattern:    cfg.OriginalPattern, // save the original, not the (?i)-prefixed version
 			Path:       cfg.Path,
 			Workers:    cfg.Workers,
 			Matches:    registry.MatchesFound,
 			DurationMs: registry.TotalDuration.Seconds() * 1000,
-		})
+		}); err != nil {
+			return fmt.Errorf("saving search history: %w", err)
+		}
 	}
 
 	// Returning the cancellation error is how the CLI knows to exit quietly

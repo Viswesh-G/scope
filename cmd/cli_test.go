@@ -458,10 +458,63 @@ func TestCLIHelpListsCommands(t *testing.T) {
 	if got.exitCode != 0 {
 		t.Fatalf("--help exited with %d\nstderr: %s", got.exitCode, got.stderr)
 	}
-	for _, name := range []string{"search", "ast", "audit", "history", "serve", "compare"} {
+	for _, name := range []string{"search", "ast", "refs", "audit", "history", "serve", "compare"} {
 		if !strings.Contains(got.stdout, name) {
 			t.Errorf("help output is missing the %q command:\n%s", name, got.stdout)
 		}
+	}
+}
+
+func TestCLIReferencesOutputsTypeAwareJSON(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod":        "module example.com/refs\n\ngo 1.25.6\n",
+		"target.go":     "package refs\n\nfunc Target() {}\n",
+		"caller/use.go": "package caller\n\nimport \"example.com/refs\"\n\nfunc Use() { refs.Target() }\n",
+	}
+	for name, body := range files {
+		full := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := run(t, dir, "", "refs", "--name", "Target", "--path", ".", "--json")
+	if got.exitCode != 0 {
+		t.Fatalf("refs exited with %d\nstderr: %s", got.exitCode, got.stderr)
+	}
+
+	var results []struct {
+		Name       string `json:"name"`
+		Definition struct {
+			File string `json:"file"`
+			Line int    `json:"line"`
+		} `json:"definition"`
+		References []struct {
+			File string `json:"file"`
+			Line int    `json:"line"`
+		} `json:"references"`
+	}
+	if err := json.Unmarshal([]byte(got.stdout), &results); err != nil {
+		t.Fatalf("refs output was not valid JSON: %v\n%s", err, got.stdout)
+	}
+	if len(results) != 1 || results[0].Name != "Target" {
+		t.Fatalf("unexpected symbol results: %+v", results)
+	}
+	if results[0].Definition.File != "target.go" {
+		t.Errorf("definition file = %q, want target.go", results[0].Definition.File)
+	}
+	foundUse := false
+	for _, reference := range results[0].References {
+		if reference.File == "caller/use.go" {
+			foundUse = true
+		}
+	}
+	if !foundUse {
+		t.Errorf("JSON output did not include the cross-package use: %+v", results[0].References)
 	}
 }
 

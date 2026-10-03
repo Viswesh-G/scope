@@ -366,7 +366,6 @@ func runSearchCmd(m model) tea.Cmd {
 var (
 	colorAccent = lipgloss.Color("42") // Green
 	colorDim    = lipgloss.Color("240")
-	colorWhite  = lipgloss.Color("255")
 	colorRed    = lipgloss.Color("196")
 	colorBlue   = lipgloss.Color("39")
 

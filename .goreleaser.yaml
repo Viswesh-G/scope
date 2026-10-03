@@ -8,6 +8,8 @@ before:
 builds:
   - id: scope
     binary: scope
+    ldflags:
+      - -s -w -X github.com/Viswesh-G/scope/cmd.Version={{ .Version }}
     env:
       - CGO_ENABLED=0
     goos:
@@ -19,9 +21,14 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
+    files:
+      - README.md
+      - LICENSE
     name_template: >-
       {{ .ProjectName }}_
+      {{- .Version }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
@@ -29,13 +36,14 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
 
 checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc

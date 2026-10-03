@@ -6,13 +6,24 @@ package cmd
 import (
 	"fmt"
 	"runtime"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
 
-// Version is the current release tag. We use a simple string constant here
-// so it's easy to update before cutting a release.
-const Version = "v0.5.0"
+// Version is set by GoReleaser for release binaries.
+var Version = "dev"
+
+func versionString() string {
+	if Version != "dev" {
+		return Version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return Version
+	}
+	return info.Main.Version
+}
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
@@ -22,7 +33,7 @@ var versionCmd = &cobra.Command{
 		// runtime.Version() comes from the Go standard library and returns something like "go1.25.6".
 		// runtime.GOOS and runtime.GOARCH tell us the operating system and CPU architecture.
 		fmt.Printf("scope %s (built with %s on %s/%s)\n",
-			Version,
+			versionString(),
 			runtime.Version(),
 			runtime.GOOS,
 			runtime.GOARCH,

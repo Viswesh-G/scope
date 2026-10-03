@@ -1,6 +1,7 @@
 # scope
 
-**A local-first codebase intelligence tool that shows you how it searches.**
+**A local-first Go codebase explorer with structural search and visible
+search-performance profiling.**
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/Viswesh-G/scope.svg)](https://pkg.go.dev/github.com/Viswesh-G/scope)
 [![CI](https://github.com/Viswesh-G/scope/actions/workflows/ci.yml/badge.svg)](https://github.com/Viswesh-G/scope/actions/workflows/ci.yml)
@@ -13,12 +14,19 @@ Most search tools answer one question: *where is this string?*
 `scope` answers that, and then keeps going. It tells you how long the search
 took, how the work was split across CPU cores, which files are the hotspots,
 and what your repository actually looks like structurally. Everything runs on
-your machine. Nothing is uploaded, indexed, or sent anywhere.
+your machine. Scope does not upload repository contents or usage telemetry.
+Go may download missing module dependencies according to your Go environment.
 
 ```bash
 go install github.com/Viswesh-G/scope@latest
-scope search -p "TODO"
+cd your-go-project
+scope search -p "context.Context" --path ./internal --workers 4
+scope ast --type func --name "Run*"
 ```
+
+`scope refs` follows Go's type information, so it finds references to the
+selected declaration rather than every identifier with the same spelling. If a
+name is ambiguous, narrow it with `--file` and `--line`.
 
 ---
 
@@ -33,6 +41,7 @@ scope search -p "TODO"
 - [Architecture](#architecture)
 - [Development](#development)
 - [Roadmap](#roadmap)
+- [Feedback and project health](#feedback-and-project-health)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -58,43 +67,45 @@ live dashboard were natural things to add.
 
 ## What you actually see
 
-A normal search prints the matches, then the telemetry:
+A normal search prints the matches, then the telemetry. This shortened
+transcript came from a real search of Scope's `internal/ignore` package; your
+counts and timings will differ:
+
+```bash
+scope search -p "ShouldSkip" --path internal/ignore --workers 2
+```
 
 ```text
---- Legend ---
-  File Path : Line Number : Matched Text
-
 Scope Metrics
-Dirs Scanned  : 148
-Files Scanned : 402
-Files Ignored : 1193
-Matches Found : 37
-Walk Time     : 3.104ms
-Search Time   : 12.482ms
-Total Time    : 4.219ms
-Parallelism   : 2.96x
+Dirs Scanned  : 1
+Files Scanned : 3
+Files Ignored : 0
+Matches Found : 14
+Walk Time     : 0s
+Search Time   : 43.1104ms
+Total Time    : 22.5599ms
+Parallelism   : 1.91x
 Concurrency: Good
 
 Worker Stats:
-  Worker 0   ████████████████░░░░   78% files scanned
-  work: 9.31ms   files: 313   matches: 31   size: 1.2 MB
-  throughput: 135.1 KB/s
-  Worker 1   ████░░░░░░░░░░░░░░░░   20% files scanned
-  work: 3.02ms   files: 82   matches: 6   size: 410.2 KB
-  throughput: 138.7 KB/s
+  Worker 0   67% files scanned
+  work: 22.5599ms   files: 2   matches: 3   size: 4.0 KB
+  throughput: 177.9 KB/s
+  Worker 1   33% files scanned
+  work: 20.5505ms   files: 1   matches: 11  size: 4.1 KB
+  throughput: 201.1 KB/s
 
 Load Balance
 ────────────────────
-Max Worker Load : 313 files  /  1.20 MB
-Min Worker Load : 82 files   /  410.20 KB
-Average Load    : 197.5 files  /  819.30 KB
-Imbalance       : 1.12x
+Max Worker Load : 2 files  /  4.1 KB
+Min Worker Load : 1 files  /  4.0 KB
+Imbalance       : 2.00x
 ```
 
-`Parallelism` is the interesting number. It is total worker CPU time divided
-by wall-clock time, so `2.96x` means you got almost three cores' worth of
-throughput out of a 4ms search. If it reads `0.4x`, your workers spent more
-time waiting on the filesystem than scanning, and that is worth knowing.
+`Search Time` is summed worker time, so it can be longer than wall-clock
+`Total Time` when workers run in parallel. `Parallelism` is summed worker time
+divided by wall-clock time. These are workload observations, not controlled
+benchmarks; use `scope compare` for repeated, recorded comparisons.
 
 There is also a terminal UI and a browser dashboard if you would rather not
 read tables.
@@ -103,15 +114,16 @@ read tables.
 
 ## Install
 
-Requires Go 1.25 or newer.
+Requires Go 1.25.6 or newer.
 
 ```bash
 # from source (recommended)
 go install github.com/Viswesh-G/scope@latest
 ```
 
-Or grab a prebuilt binary for Linux, macOS, or Windows from the
-[releases page](https://github.com/Viswesh-G/scope/releases/latest).
+Prebuilt Linux, macOS, and Windows archives with checksums are available from
+the [releases page](https://github.com/Viswesh-G/scope/releases) after a tagged
+release is published. Until then, build from source with the command above.
 
 <details>
 <summary>Build from a checkout</summary>
@@ -160,9 +172,12 @@ does not get confused by a comment that happens to mention a function name:
 scope ast --type func --name "handle*"
 scope ast --type struct --path ./internal
 scope ast --type interface --name "*er"
+scope refs --name Run --path . --file path/to/file.go --line 10
 ```
 
-Supported node types: `func`, `struct`, `interface`, `var`, `const`, `type`.
+Supported AST node types: `func`, `struct`, `interface`, `var`, `const`,
+`type`. `refs` requires packages to type-check; package errors are reported
+instead of returning guessed matches.
 
 ### 2. Understand
 
@@ -220,6 +235,7 @@ scope history pattern "TODO"
 | --- | --- |
 | `scope search` | The main event. Regex/literal search with metrics, JSON, HTML, and profile output. |
 | `scope ast` | Structural search over Go declarations. |
+| `scope refs` | Type-aware references to a Go declaration. |
 | `scope audit` | One-shot repository health check. |
 | `scope stats` | File counts by extension. |
 | `scope deps` | Go import frequency. |
@@ -276,6 +292,7 @@ flowchart LR
 | `internal/metrics/` | Atomic counters and worker reports. |
 | `internal/analysis/` | History, repository stats, duplicates, graphs, benchmarks. |
 | `internal/ast/` | Go structural search. |
+| `internal/navigation/` | Type-aware Go symbol reference lookup. |
 | `internal/output/` | Terminal rendering, colors, HTML reports. |
 | `internal/tui/` | Bubble Tea interface. |
 | `internal/serve/` | Local HTTP API, SSE, embedded dashboard. |
@@ -308,7 +325,7 @@ Optional tools, used when present: `rg` for `scope compare`, `graphviz` for
 flamegraph SVGs, `govulncheck` for the security scan.
 
 CI runs build, vet, formatting checks, golangci-lint, `govulncheck`, coverage,
-a coverage threshold, and the race detector on both Linux and Windows.
+and a coverage threshold on Linux and Windows. The race detector runs on Linux.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow and conventions.
 
@@ -316,23 +333,24 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow and conventions.
 
 ## Roadmap
 
-Things that are planned, roughly in order of how much they'd improve the tool:
+Scope is intentionally Go-first. The next useful steps are broader type-aware
+navigation (callers and impact analysis), repeatable user-tested workflows,
+and better machine-readable output for repository analysis. Cross-language
+parsers and performance gates are not planned until there is a clear use case
+and a controlled way to validate their correctness.
 
-- **Context cancellation.** Ctrl+C should stop a search cleanly instead of
-  just killing the process.
-- **Safer history storage.** The JSON history file is read-modify-written with
-  no locking, so concurrent searches, watch mode, and dashboard-triggered
-  searches can race. It needs an append-only log or a lock.
-- **Symbol indexing.** Build a real index of Go symbols so `scope` can answer
-  "where is this used" and "what breaks if I change this".
-- **Cross-language structural search.** Put the parser behind an interface so
-  Python, TypeScript, and Rust can be added without rewriting the walker.
-- **JSON output everywhere.** `ast`, `graph`, `audit`, and `deps` should all be
-  scriptable.
-- **Performance regression benchmarks in CI.** A benchmark that runs on every
-  PR and fails when throughput drops.
-- **Harden the dashboard.** Localhost-only by default, explicit opt-in for
-  remote binding, request path validation, optional auth token.
+## Feedback and project health
+
+Bug reports and workflow ideas are welcome through
+[GitHub Issues](https://github.com/Viswesh-G/scope/issues). A useful report
+includes the command, operating system, expected result, and actual result;
+do not include private source code or sensitive repository data. Scope does
+not send telemetry.
+
+For maintainers, GitHub traffic, release downloads, and substantive issue or
+pull-request activity are signals to review, not install or user counts.
+Clones can include automation. Avoid analytics that conflict with Scope's
+local-first promise.
 
 ---
 

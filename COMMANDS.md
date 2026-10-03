@@ -83,6 +83,27 @@ scope ast --type interface --name "*er"
 
 Supported types are `func`, `struct`, `interface`, `var`, `const`, and `type`.
 
+## Go symbol references
+
+### `scope refs`
+
+Find references to one exact Go declaration using package type information.
+This avoids confusing unrelated identifiers that happen to have the same
+spelling. Packages must type-check; Scope reports type-check errors rather than
+falling back to text matching. Go may download missing module dependencies
+according to your Go environment settings.
+
+```bash
+scope refs --name Run --path . --file path/to/file.go --line 10
+scope refs --name Run --path . --file path/to/file.go --line 10 --json
+```
+
+If the name has multiple definitions, Scope asks you to narrow the selection
+with `--file` and `--line`. JSON output contains the selected definition and
+all resolved references within the loaded package tree, including tests.
+When searching this repository, for example, the `Run` declaration is at
+`internal/search/engine.go:36`.
+
 ## Repository analysis
 
 ### `scope audit`

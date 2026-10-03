@@ -31,6 +31,7 @@ useful performance metrics like throughput, parallelism, and load balance.
 
   scope search -p "TODO"          # search files
   scope ast --type func           # search Go AST functions
+  scope refs --name Run           # find Go symbol references
   scope tui                       # open interactive terminal interface
   scope serve                     # launch live web dashboard
   scope compare -p "func"         # benchmark against ripgrep

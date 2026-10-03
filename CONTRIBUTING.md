@@ -5,7 +5,7 @@ Thank you for your interest in improving scope!
 ## Development Setup
 
 1. Clone the repo
-2. Ensure you have Go 1.25+ installed
+2. Ensure you have Go 1.25.6 or newer installed
 3. Run `make build` to compile the `scope` binary (and the `scp` alias)
 
 ## Make Commands
@@ -39,6 +39,7 @@ Scope is divided into two main areas:
   - `walk/`: Shared, cancellable filesystem traversal for search and analysis.
   - `metrics/`: Atomic performance counters to track worker efficiency.
   - `ast/`: Go structural search using the standard library parser.
+  - `navigation/`: Type-aware Go symbol reference lookup.
   - `serve/`: The HTTP server, SSE broadcaster, and Live Dashboard UI.
   - `tui/`: The Bubbletea interactive terminal user interface.
 
@@ -56,3 +57,23 @@ If you touch `internal/search`, run `make bench`. scope is optimized to skip the
 The TUI runs the same `search` command as the CLI and keeps JSON output valid for
 pipelines. When adding a TUI control, prefer composing existing CLI flags instead
 of creating a second search implementation.
+
+`scope refs` uses `golang.org/x/tools/go/packages` to resolve Go declarations.
+Keep its output tied to type information; do not silently fall back to textual
+identifier matching when a package fails to type-check.
+
+## Releasing
+
+A `vX.Y.Z` tag starts the release workflow. Before creating one, make sure the
+main-branch CI run is green and the version is ready to publish. The workflow
+runs the linter and `make check`, then creates Linux, macOS, and Windows
+archives with checksums. After the first release, verify that each archive
+downloads, extracts, and runs before announcing it.
+
+## Early user feedback
+
+For a small beta, ask a few Go developers to try one concrete task, such as
+finding a symbol reference or comparing a search workload. Ask where setup or
+output was confusing, and record feedback as issues without collecting private
+repository contents. Review release downloads and GitHub traffic as rough
+discovery signals; they do not measure unique active users.

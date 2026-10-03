@@ -41,7 +41,7 @@ var searchMu sync.Mutex
 // lockWait is how long we are willing to wait for another process to finish
 // writing before we decide its lock file was left behind by a crash.
 // It is a variable rather than a constant only so tests can shorten the wait.
-var lockWait = 2 * time.Second
+var lockWait = 15 * time.Second
 
 // SearchRecord is one entry in the history file.
 type SearchRecord struct {

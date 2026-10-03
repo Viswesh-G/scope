@@ -37,16 +37,6 @@ var DefaultAnimal = Animal{Name: "Cat"}
 const MaxAnimals = 100
 `
 
-func parseTestSource(t *testing.T) (*token.FileSet, interface{}) {
-	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "test.go", testSource, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("failed to parse test source: %v", err)
-	}
-	return fset, file
-}
-
 func TestMatchFunc_NoFilter(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "test.go", testSource, 0)

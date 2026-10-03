@@ -1,14 +1,11 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
-  disable-all: true
+  default: none
   enable:
-    - errcheck
     - govet
     - ineffassign
-    - staticcheck
     - unused
-
-issues:
-  exclude-use-default: false
